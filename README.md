@@ -110,12 +110,6 @@ npx agentcms keygen    # Generate agent API keys
 npx agentcms seed      # Sample posts
 ```
 
-## Architecture
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/PACKAGE-DESIGN.md](docs/PACKAGE-DESIGN.md).
-
----
-
 ## License
 
-MIT — MC2 Ventures
+MIT — [MC2 Ventures](https://github.com/agentcms)
