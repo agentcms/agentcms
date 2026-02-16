@@ -1,0 +1,102 @@
+---
+/**
+ * AgentCMS — RelatedPosts
+ * Shows posts related to the current one, matched by shared tags or category.
+ */
+import BlogPostCard from "./BlogPostCard.astro";
+
+interface Props {
+  /** The current post (used to find related posts and exclude itself) */
+  currentSlug: string;
+  /** Tags of the current post to match against */
+  currentTags: string[];
+  /** Category of the current post to match against */
+  currentCategory?: string;
+  /** All available posts (index entries) to search through */
+  posts: Array<{
+    slug: string;
+    title: string;
+    description: string;
+    publishedAt: string;
+    tags: string[];
+    category?: string;
+    author: string;
+    authorType: "agent" | "human";
+    featuredImage?: string;
+    readingTime?: number;
+  }>;
+  /** Max number of related posts. Default: 3 */
+  limit?: number;
+  /** Base path for post links. Default: "/blog" */
+  basePath?: string;
+  /** Section title. Default: "Related posts" */
+  title?: string;
+  class?: string;
+}
+
+const {
+  currentSlug,
+  currentTags,
+  currentCategory,
+  posts,
+  limit = 3,
+  basePath = "/blog",
+  title = "Related posts",
+  class: className,
+} = Astro.props;
+
+// Score each post by relevance (shared tags + same category)
+const scored = posts
+  .filter((p) => p.slug !== currentSlug)
+  .map((p) => {
+    let score = 0;
+    for (const tag of p.tags) {
+      if (currentTags.includes(tag)) score += 2;
+    }
+    if (currentCategory && p.category === currentCategory) score += 1;
+    return { post: p, score };
+  })
+  .filter((s) => s.score > 0)
+  .sort((a, b) => b.score - a.score)
+  .slice(0, limit);
+
+const related = scored.map((s) => s.post);
+---
+
+{related.length > 0 && (
+  <section data-acms-related-posts class:list={[className]}>
+    {title && <p data-acms-related-title>{title}</p>}
+    <div data-acms-related-grid>
+      {related.map((post) => (
+        <BlogPostCard
+          post={post}
+          basePath={basePath}
+          showExcerpt={false}
+          showImage={false}
+          headingLevel="h3"
+        />
+      ))}
+    </div>
+  </section>
+)}
+
+<style>
+  [data-acms-related-posts] {
+    border-top: 1px solid var(--acms-color-border, #e5dfd6);
+    padding-top: calc(var(--acms-space-unit, 1.25rem) * 2);
+  }
+  [data-acms-related-title] {
+    font-family: var(--acms-font-mono, monospace);
+    font-size: 0.7rem;
+    font-weight: 300;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--acms-color-text-muted, #9a9089);
+    margin: 0 0 1rem;
+  }
+  [data-acms-related-grid] {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: var(--acms-space-unit, 1.25rem);
+  }
+</style>

@@ -1,0 +1,51 @@
+---
+/**
+ * AgentCMS — Auto-mode Tag Page
+ * Injected at {basePath}/tag/[tag] when mode is "auto".
+ */
+import BlogHeader from "@agentcms/core/components/BlogHeader.astro";
+import BlogList from "@agentcms/core/components/BlogList.astro";
+import Pagination from "@agentcms/core/components/Pagination.astro";
+import { getAgentCMSPosts } from "@agentcms/core";
+
+const basePath = globalThis.__AGENTCMS_CONFIG__?.basePath || "/blog";
+const perPage = globalThis.__AGENTCMS_CONFIG__?.postsPerPage || 12;
+
+const { tag } = Astro.params;
+const page = Math.max(1, Number(Astro.url.searchParams.get("page") || "1"));
+
+const { posts, totalPages, currentPage } = await getAgentCMSPosts({
+  page,
+  limit: perPage,
+  tag: tag!,
+});
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Posts tagged "{tag}"</title>
+  </head>
+  <body data-acms-page="blog-tag">
+    <BlogHeader title={`#${tag}`} description={`All posts tagged with "${tag}"`} />
+    <main>
+      <BlogList posts={posts} basePath={basePath} />
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        basePath={`${basePath}/tag/${tag}`}
+      />
+    </main>
+  </body>
+</html>
+
+<style is:global>
+  [data-acms-page] {
+    margin: 0;
+    font-family: var(--acms-font-body, "Cormorant Garamond", "Garamond", "Georgia", serif);
+    background: var(--acms-color-bg, #faf8f5);
+    color: var(--acms-color-text, #3d3833);
+    -webkit-font-smoothing: antialiased;
+  }
+</style>

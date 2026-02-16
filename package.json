@@ -1,0 +1,65 @@
+{
+  "name": "@agentcms/core",
+  "version": "0.1.0",
+  "description": "AI-agent-first headless CMS for Astro 6 + Cloudflare",
+  "type": "module",
+  "license": "MIT",
+  "author": "MC2 Ventures",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agentcms/agentcms"
+  },
+  "keywords": [
+    "astro",
+    "astro-integration",
+    "cms",
+    "headless-cms",
+    "cloudflare",
+    "ai-agents",
+    "blog",
+    "kv",
+    "mcp"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./components": "./src/components/index.ts",
+    "./components/*": "./src/components/*",
+    "./routes/*": "./src/routes/*",
+    "./theme/default.css": "./src/theme/default.css",
+    "./theme/prose.css": "./src/theme/prose.css"
+  },
+  "files": [
+    "dist",
+    "src/components",
+    "src/routes",
+    "src/theme"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "biome check .",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@astrojs/cloudflare": "^13.0.0-beta.0",
+    "astro": "^6.0.0-beta.0"
+  },
+  "dependencies": {
+    "marked": "^15.0.0",
+    "sanitize-html": "^2.17.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260101.0",
+    "@types/node": "^25.2.3",
+    "astro": "^6.0.0-beta.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "bin": {
+    "agentcms": "./dist/cli/index.js"
+  }
+}

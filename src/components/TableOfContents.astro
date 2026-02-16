@@ -1,0 +1,76 @@
+---
+/**
+ * AgentCMS — TableOfContents
+ * Generates a nested list of heading links from markdown content.
+ * Uses extractHeadings() to parse h2-h4 headings.
+ */
+import { extractHeadings } from "../utils/content.js";
+
+interface Props {
+  /** Raw markdown content to extract headings from */
+  content: string;
+  /** Heading above the TOC. Default: "Contents" */
+  title?: string;
+  /** Minimum number of headings to show the TOC. Default: 2 */
+  minHeadings?: number;
+  class?: string;
+}
+
+const {
+  content,
+  title = "Contents",
+  minHeadings = 2,
+  class: className,
+} = Astro.props;
+
+const headings = extractHeadings(content);
+const show = headings.length >= minHeadings;
+---
+
+{show && (
+  <nav data-acms-toc class:list={[className]} aria-label="Table of contents">
+    {title && <p data-acms-toc-title>{title}</p>}
+    <ul data-acms-toc-list>
+      {headings.map((h) => (
+        <li data-acms-toc-item data-depth={h.depth}>
+          <a href={`#${h.slug}`}>{h.text}</a>
+        </li>
+      ))}
+    </ul>
+  </nav>
+)}
+
+<style>
+  [data-acms-toc] {
+    font-family: var(--acms-font-mono, monospace);
+    font-size: 0.8rem;
+    font-weight: 300;
+    line-height: 1.8;
+  }
+  [data-acms-toc-title] {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--acms-color-text-muted, #9a9089);
+    margin: 0 0 0.5rem;
+  }
+  [data-acms-toc-list] {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  [data-acms-toc-item] a {
+    color: var(--acms-color-text, inherit);
+    text-decoration: none;
+    transition: color 0.3s ease;
+  }
+  [data-acms-toc-item] a:hover {
+    color: var(--acms-color-accent, #8b7355);
+  }
+  [data-acms-toc-item][data-depth="3"] {
+    padding-left: 1rem;
+  }
+  [data-acms-toc-item][data-depth="4"] {
+    padding-left: 2rem;
+  }
+</style>

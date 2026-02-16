@@ -1,0 +1,66 @@
+---
+/**
+ * AgentCMS — Pagination
+ */
+interface Props {
+  currentPage: number;
+  totalPages: number;
+  basePath: string;
+  class?: string;
+}
+const { currentPage, totalPages, basePath, class: className } = Astro.props;
+---
+
+{totalPages > 1 && (
+  <nav data-acms-pagination aria-label="Blog pagination" class:list={[className]}>
+    {currentPage > 1 ? (
+      <a href={`${basePath}?page=${currentPage - 1}`} data-acms-pagination-prev>
+        <slot name="prev">← Newer</slot>
+      </a>
+    ) : (
+      <span data-acms-pagination-prev data-disabled />
+    )}
+
+    <span data-acms-pagination-info>
+      {currentPage} / {totalPages}
+    </span>
+
+    {currentPage < totalPages ? (
+      <a href={`${basePath}?page=${currentPage + 1}`} data-acms-pagination-next>
+        <slot name="next">Older →</slot>
+      </a>
+    ) : (
+      <span data-acms-pagination-next data-disabled />
+    )}
+  </nav>
+)}
+
+<style>
+  [data-acms-pagination] {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 2rem;
+    padding: calc(var(--acms-space-unit, 1.25rem) * 3) 0;
+    font-family: var(--acms-font-mono, monospace);
+    font-weight: 300;
+  }
+  [data-acms-pagination] a {
+    color: var(--acms-color-accent, #8b7355);
+    text-decoration: none;
+    font-weight: 300;
+    font-size: 0.85rem;
+    transition: opacity 0.4s ease;
+  }
+  [data-acms-pagination] a:hover {
+    opacity: 0.6;
+  }
+  [data-acms-pagination-info] {
+    color: var(--acms-color-text-muted, #9a9089);
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+  }
+  [data-disabled] {
+    visibility: hidden;
+  }
+</style>

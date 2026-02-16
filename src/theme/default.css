@@ -1,0 +1,42 @@
+/* ============================================================================
+ * AgentCMS — Default Theme
+ * Import: import "agentcms/theme/default.css"
+ * Or let the integration inject it with theme: "default"
+ *
+ * Override any variable to customize. Target [data-acms-*] for full control.
+ * ============================================================================ */
+
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400&display=swap");
+
+:root {
+  /* Typography */
+  --acms-font-heading: "Cormorant Garamond", "Garamond", "Georgia", serif;
+  --acms-font-body: "Cormorant Garamond", "Garamond", "Georgia", serif;
+  --acms-font-mono: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+
+  /* Colors — light mode */
+  --acms-color-text: #3d3833;
+  --acms-color-text-muted: #9a9089;
+  --acms-color-accent: #8b7355;
+  --acms-color-bg: #faf8f5;
+  --acms-color-bg-card: transparent;
+  --acms-color-border: #e5dfd6;
+
+  /* Spacing & Layout */
+  --acms-radius: 0;
+  --acms-space-unit: 1.25rem;
+  --acms-max-width: 68rem;
+  --acms-content-width: 40rem;
+}
+
+/* Dark mode (respects user preference) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --acms-color-text: #e8e2d9;
+    --acms-color-text-muted: #9a9089;
+    --acms-color-accent: #c4a97d;
+    --acms-color-bg: #1a1816;
+    --acms-color-bg-card: transparent;
+    --acms-color-border: #2e2a25;
+  }
+}

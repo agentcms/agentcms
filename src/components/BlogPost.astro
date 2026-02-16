@@ -1,0 +1,284 @@
+---
+/**
+ * AgentCMS — BlogPost
+ * Full article template for a single blog post.
+ * Markdown is parsed with marked and sanitized to prevent XSS from raw HTML in content.
+ */
+import { marked } from "marked";
+import sanitizeHtml from "sanitize-html";
+
+const SANITIZE_OPTIONS = {
+  allowedTags: [
+    "p", "br", "h1", "h2", "h3", "h4", "h5", "h6",
+    "a", "strong", "em", "code", "pre", "ul", "ol", "li",
+    "blockquote", "hr", "img", "table", "thead", "tbody", "tr", "th", "td",
+  ],
+  allowedAttributes: {
+    a: ["href", "title", "rel"],
+    img: ["src", "alt", "title", "width", "height"],
+    h1: ["id"], h2: ["id"], h3: ["id"], h4: ["id"], h5: ["id"], h6: ["id"],
+  },
+  allowedSchemes: ["http", "https", "mailto"],
+  allowedSchemesByTag: { img: ["http", "https", "data"] },
+};
+
+interface Props {
+  post: {
+    slug: string;
+    title: string;
+    description: string;
+    content: string;
+    publishedAt: string;
+    updatedAt: string;
+    tags: string[];
+    category?: string;
+    author: string;
+    authorType: "agent" | "human";
+    featuredImage?: string;
+    readingTime?: number;
+  };
+  basePath?: string;
+  showTags?: boolean;
+  showAuthor?: boolean;
+  showAgentBadge?: boolean;
+  class?: string;
+}
+
+const {
+  post,
+  basePath = "/blog",
+  showTags = true,
+  showAuthor = true,
+  showAgentBadge = true,
+  class: className,
+} = Astro.props;
+
+const rawHtml = await marked.parse(post.content);
+const htmlContent = typeof rawHtml === "string" ? sanitizeHtml(rawHtml, SANITIZE_OPTIONS) : "";
+const publishDate = new Date(post.publishedAt).toLocaleDateString("en-US", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+});
+---
+
+<article data-acms-post class:list={[className]}>
+  <header data-acms-post-header>
+    <slot name="before-title" />
+
+    {showTags && post.tags.length > 0 && (
+      <div data-acms-post-tags-top>
+        {post.tags.map((tag) => (
+          <a href={`${basePath}/tag/${tag}`} data-acms-tag-badge>{tag}</a>
+        ))}
+      </div>
+    )}
+
+    <h1 data-acms-post-title>{post.title}</h1>
+
+    <div data-acms-post-meta>
+      {showAuthor && (
+        <span data-acms-post-author>
+          {showAgentBadge && (
+            <span data-acms-author-icon>{post.authorType === "agent" ? "🤖" : "✍️"}</span>
+          )}
+          {post.author}
+        </span>
+      )}
+      <time datetime={post.publishedAt} data-acms-post-date>{publishDate}</time>
+      {post.readingTime && (
+        <span data-acms-post-readtime>{post.readingTime} min read</span>
+      )}
+    </div>
+
+    <slot name="after-meta" />
+
+    {post.featuredImage && (
+      <div data-acms-post-hero-image>
+        <slot name="hero-image">
+          <img src={post.featuredImage} alt={post.title} />
+        </slot>
+      </div>
+    )}
+  </header>
+
+  <div data-acms-post-content>
+    <slot name="before-content" />
+    <div data-acms-prose set:html={htmlContent} />
+    <slot name="after-content" />
+  </div>
+
+  <footer data-acms-post-footer>
+    <slot name="footer">
+      {showTags && post.tags.length > 0 && (
+        <div data-acms-post-tags-bottom>
+          {post.tags.map((tag) => (
+            <a href={`${basePath}/tag/${tag}`} data-acms-tag-badge-lg>{tag}</a>
+          ))}
+        </div>
+      )}
+    </slot>
+  </footer>
+</article>
+
+<style>
+  [data-acms-post] {
+    max-width: var(--acms-max-width, 68rem);
+    margin-inline: auto;
+    padding-inline: var(--acms-space-unit, 1.25rem);
+  }
+  [data-acms-post-header] {
+    max-width: var(--acms-content-width, 40rem);
+    margin-inline: auto;
+    padding-block: calc(var(--acms-space-unit, 1.25rem) * 3) calc(var(--acms-space-unit, 1.25rem) * 2);
+  }
+  [data-acms-post-tags-top] {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  [data-acms-tag-badge] {
+    font-family: var(--acms-font-mono, monospace);
+    font-size: 0.7rem;
+    font-weight: 300;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--acms-color-accent, #8b7355);
+    text-decoration: none;
+    transition: opacity 0.4s ease;
+  }
+  [data-acms-tag-badge]:hover {
+    opacity: 0.6;
+  }
+  [data-acms-post-title] {
+    font-family: var(--acms-font-heading, inherit);
+    font-size: clamp(2rem, 5vw, 3rem);
+    font-weight: 300;
+    line-height: 1.15;
+    color: var(--acms-color-text, inherit);
+    margin: 0;
+  }
+  [data-acms-post-meta] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 1rem;
+    font-family: var(--acms-font-mono, monospace);
+    font-size: 0.8rem;
+    font-weight: 300;
+    color: var(--acms-color-text-muted, #9a9089);
+  }
+  [data-acms-post-author] {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  [data-acms-post-hero-image] {
+    margin-top: calc(var(--acms-space-unit, 1.25rem) * 2);
+    border-radius: var(--acms-radius, 0);
+    overflow: hidden;
+  }
+  [data-acms-post-hero-image] img {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  /* Article body */
+  [data-acms-post-content] {
+    max-width: var(--acms-content-width, 40rem);
+    margin-inline: auto;
+  }
+
+  /* Prose — article typography */
+  [data-acms-prose] {
+    font-family: var(--acms-font-body, inherit);
+    font-size: 1.15rem;
+    font-weight: 300;
+    line-height: 1.85;
+    color: var(--acms-color-text, inherit);
+  }
+  [data-acms-prose] :global(h2) {
+    font-family: var(--acms-font-heading, inherit);
+    font-size: 1.5rem;
+    font-weight: 400;
+    margin-top: 3rem;
+    margin-bottom: 0.75rem;
+    line-height: 1.3;
+  }
+  [data-acms-prose] :global(h3) {
+    font-family: var(--acms-font-heading, inherit);
+    font-size: 1.25rem;
+    font-weight: 400;
+    margin-top: 2.5rem;
+    margin-bottom: 0.5rem;
+  }
+  [data-acms-prose] :global(p) {
+    margin-block: 1.25rem;
+  }
+  [data-acms-prose] :global(a) {
+    color: var(--acms-color-accent, #8b7355);
+  }
+  [data-acms-prose] :global(code) {
+    font-size: 0.9em;
+    background: var(--acms-color-border, #e5dfd6);
+    padding: 0.15em 0.4em;
+    border-radius: 0;
+  }
+  [data-acms-prose] :global(pre) {
+    background: #2a2520;
+    color: #e2ddd6;
+    padding: 1.25rem;
+    border-radius: var(--acms-radius, 0);
+    overflow-x: auto;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    margin-block: 1.5rem;
+  }
+  [data-acms-prose] :global(pre code) {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+  }
+  [data-acms-prose] :global(blockquote) {
+    border-left: 1px solid var(--acms-color-border, #e5dfd6);
+    padding-left: 1.25rem;
+    margin-left: 0;
+    color: var(--acms-color-text-muted, #9a9089);
+    font-style: italic;
+  }
+  [data-acms-prose] :global(img) {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--acms-radius, 0);
+  }
+  [data-acms-prose] :global(hr) {
+    border: none;
+    border-top: 1px solid var(--acms-color-border, #e5dfd6);
+    margin-block: 2rem;
+  }
+
+  /* Footer */
+  [data-acms-post-footer] {
+    max-width: var(--acms-content-width, 40rem);
+    margin-inline: auto;
+    padding-block: calc(var(--acms-space-unit, 1.25rem) * 2);
+    margin-top: calc(var(--acms-space-unit, 1.25rem) * 3);
+  }
+  [data-acms-post-tags-bottom] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  [data-acms-tag-badge-lg] {
+    font-family: var(--acms-font-mono, monospace);
+    font-size: 0.8rem;
+    font-weight: 300;
+    text-decoration: none;
+    color: var(--acms-color-text-muted, #9a9089);
+    transition: color 0.4s ease;
+  }
+  [data-acms-tag-badge-lg]:hover {
+    color: var(--acms-color-accent, #8b7355);
+  }
+</style>

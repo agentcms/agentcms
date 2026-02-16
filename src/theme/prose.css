@@ -1,0 +1,146 @@
+/* ============================================================================
+ * AgentCMS — Prose Typography
+ * Standalone prose styling for rendered markdown content.
+ *
+ * Import: import "@agentcms/core/theme/prose.css"
+ * Usage:  <div class="acms-prose" set:html={html} />
+ *
+ * Also applied automatically by <BlogPost> via [data-acms-prose].
+ * ============================================================================ */
+
+.acms-prose,
+[data-acms-prose] {
+  font-family: var(--acms-font-body, inherit);
+  font-size: 1.15rem;
+  font-weight: 300;
+  line-height: 1.85;
+  color: var(--acms-color-text, inherit);
+}
+
+.acms-prose h2,
+[data-acms-prose] h2 {
+  font-family: var(--acms-font-heading, inherit);
+  font-size: 1.5rem;
+  font-weight: 400;
+  margin-top: 3rem;
+  margin-bottom: 0.75rem;
+  line-height: 1.3;
+}
+
+.acms-prose h3,
+[data-acms-prose] h3 {
+  font-family: var(--acms-font-heading, inherit);
+  font-size: 1.25rem;
+  font-weight: 400;
+  margin-top: 2.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.acms-prose h4,
+[data-acms-prose] h4 {
+  font-family: var(--acms-font-heading, inherit);
+  font-size: 1.1rem;
+  font-weight: 400;
+  margin-top: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+.acms-prose p,
+[data-acms-prose] p {
+  margin-block: 1.25rem;
+}
+
+.acms-prose a,
+[data-acms-prose] a {
+  color: var(--acms-color-accent, #8b7355);
+}
+
+.acms-prose code,
+[data-acms-prose] code {
+  font-family: var(--acms-font-mono, monospace);
+  font-size: 0.9em;
+  background: var(--acms-color-border, #e5dfd6);
+  padding: 0.15em 0.4em;
+  border-radius: 0;
+}
+
+.acms-prose pre,
+[data-acms-prose] pre {
+  background: #2a2520;
+  color: #e2ddd6;
+  padding: 1.25rem;
+  border-radius: var(--acms-radius, 0);
+  overflow-x: auto;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  margin-block: 1.5rem;
+}
+
+.acms-prose pre code,
+[data-acms-prose] pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+}
+
+.acms-prose blockquote,
+[data-acms-prose] blockquote {
+  border-left: 1px solid var(--acms-color-border, #e5dfd6);
+  padding-left: 1.25rem;
+  margin-left: 0;
+  color: var(--acms-color-text-muted, #9a9089);
+  font-style: italic;
+}
+
+.acms-prose img,
+[data-acms-prose] img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--acms-radius, 0);
+}
+
+.acms-prose hr,
+[data-acms-prose] hr {
+  border: none;
+  border-top: 1px solid var(--acms-color-border, #e5dfd6);
+  margin-block: 2rem;
+}
+
+.acms-prose ul,
+.acms-prose ol,
+[data-acms-prose] ul,
+[data-acms-prose] ol {
+  padding-left: 1.5rem;
+  margin-block: 1.25rem;
+}
+
+.acms-prose li,
+[data-acms-prose] li {
+  margin-block: 0.35rem;
+}
+
+.acms-prose table,
+[data-acms-prose] table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-block: 1.5rem;
+  font-size: 0.95rem;
+}
+
+.acms-prose th,
+.acms-prose td,
+[data-acms-prose] th,
+[data-acms-prose] td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--acms-color-border, #e5dfd6);
+  text-align: left;
+}
+
+.acms-prose th,
+[data-acms-prose] th {
+  font-weight: 400;
+  color: var(--acms-color-text-muted, #9a9089);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}

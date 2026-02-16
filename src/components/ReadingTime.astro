@@ -1,0 +1,27 @@
+---
+/**
+ * AgentCMS — ReadingTime
+ * Displays estimated reading time in minutes.
+ */
+
+interface Props {
+  /** Reading time in minutes */
+  minutes: number;
+  class?: string;
+}
+
+const { minutes, class: className } = Astro.props;
+---
+
+<span data-acms-reading-time class:list={[className]}>
+  {minutes} min read
+</span>
+
+<style>
+  [data-acms-reading-time] {
+    font-family: var(--acms-font-mono, monospace);
+    font-size: inherit;
+    font-weight: 300;
+    color: inherit;
+  }
+</style>

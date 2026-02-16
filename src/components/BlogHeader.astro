@@ -1,0 +1,51 @@
+---
+/**
+ * AgentCMS — BlogHeader
+ * Page header for the blog index.
+ */
+interface Props {
+  title: string;
+  description?: string;
+  class?: string;
+}
+const { title, description, class: className } = Astro.props;
+---
+
+<header data-acms-blog-header class:list={[className]}>
+  <div data-acms-blog-header-inner>
+    <h1 data-acms-blog-title>
+      <slot name="title">{title}</slot>
+    </h1>
+    {description && <p data-acms-blog-description>{description}</p>}
+    <slot />
+  </div>
+</header>
+
+<style>
+  [data-acms-blog-header] {
+    padding-block: calc(var(--acms-space-unit, 1.25rem) * 4) calc(var(--acms-space-unit, 1.25rem) * 2);
+  }
+  [data-acms-blog-header-inner] {
+    max-width: var(--acms-max-width, 68rem);
+    margin-inline: auto;
+    padding-inline: var(--acms-space-unit, 1.25rem);
+  }
+  [data-acms-blog-title] {
+    font-family: var(--acms-font-heading, inherit);
+    font-size: clamp(2rem, 5vw, 4rem);
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    color: var(--acms-color-text, inherit);
+    margin: 0;
+    line-height: 1.1;
+  }
+  [data-acms-blog-description] {
+    font-family: var(--acms-font-body, inherit);
+    font-weight: 300;
+    color: var(--acms-color-text-muted, #9a9089);
+    font-size: 1.125rem;
+    margin-top: 0.75rem;
+    max-width: 38rem;
+    line-height: 1.6;
+  }
+</style>

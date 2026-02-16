@@ -1,0 +1,38 @@
+---
+/**
+ * AgentCMS — TagBadge
+ * Displays a single tag as a styled badge, optionally linked to a tag page.
+ */
+
+interface Props {
+  /** Tag text */
+  tag: string;
+  /** Link URL. If provided, renders as <a>; otherwise <span> */
+  href?: string;
+  class?: string;
+}
+
+const { tag, href, class: className } = Astro.props;
+---
+
+{href ? (
+  <a href={href} data-acms-tag-badge class:list={[className]}>{tag}</a>
+) : (
+  <span data-acms-tag-badge class:list={[className]}>{tag}</span>
+)}
+
+<style>
+  [data-acms-tag-badge] {
+    font-family: var(--acms-font-mono, monospace);
+    font-size: 0.7rem;
+    font-weight: 300;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--acms-color-accent, #8b7355);
+    text-decoration: none;
+    transition: opacity 0.4s ease;
+  }
+  a[data-acms-tag-badge]:hover {
+    opacity: 0.6;
+  }
+</style>

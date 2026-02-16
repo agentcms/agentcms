@@ -1,0 +1,39 @@
+---
+/**
+ * AgentCMS — AuthorBadge
+ * Displays author name with an icon indicating agent or human authorship.
+ */
+
+interface Props {
+  /** Author display name */
+  author: string;
+  /** Whether the author is an AI agent or human */
+  authorType: "agent" | "human";
+  /** Show the icon emoji. Default: true */
+  showIcon?: boolean;
+  class?: string;
+}
+
+const { author, authorType, showIcon = true, class: className } = Astro.props;
+const icon = authorType === "agent" ? "\u{1F916}" : "\u{270D}\u{FE0F}";
+---
+
+<span data-acms-author-badge class:list={[className]}>
+  {showIcon && <span data-acms-author-icon>{icon}</span>}
+  {author}
+</span>
+
+<style>
+  [data-acms-author-badge] {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-family: var(--acms-font-mono, monospace);
+    font-size: inherit;
+    font-weight: 300;
+    color: inherit;
+  }
+  [data-acms-author-icon] {
+    font-size: 0.9em;
+  }
+</style>

@@ -1,0 +1,103 @@
+---
+/**
+ * AgentCMS — BlogList
+ * Renders a grid or list of post cards.
+ */
+import BlogPostCard from "./BlogPostCard.astro";
+
+interface Props {
+  posts: Array<{
+    slug: string;
+    title: string;
+    description: string;
+    publishedAt: string;
+    tags: string[];
+    category?: string;
+    author: string;
+    authorType: "agent" | "human";
+    featuredImage?: string;
+    readingTime?: number;
+  }>;
+  basePath?: string;
+  layout?: "grid" | "list";
+  columns?: 1 | 2 | 3;
+  showImages?: boolean;
+  showExcerpt?: boolean;
+  showTags?: boolean;
+  showAuthor?: boolean;
+  class?: string;
+}
+
+const {
+  posts,
+  basePath = "/blog",
+  layout = "grid",
+  columns = 3,
+  showImages = true,
+  showExcerpt = true,
+  showTags = true,
+  showAuthor = true,
+  class: className,
+} = Astro.props;
+---
+
+<div
+  data-acms-blog-list
+  data-layout={layout}
+  style={`--acms-columns: ${columns}`}
+  class:list={[className]}
+>
+  {posts.length > 0 ? (
+    posts.map((post) => (
+      <BlogPostCard
+        post={post}
+        basePath={basePath}
+        showImage={showImages}
+        showExcerpt={showExcerpt}
+        showTags={showTags}
+        showAuthor={showAuthor}
+      />
+    ))
+  ) : (
+    <slot name="empty">
+      <p data-acms-empty>No posts yet. Stay tuned!</p>
+    </slot>
+  )}
+</div>
+
+<style>
+  [data-acms-blog-list] {
+    max-width: var(--acms-max-width, 68rem);
+    margin-inline: auto;
+    padding-inline: var(--acms-space-unit, 1.25rem);
+  }
+  [data-acms-blog-list][data-layout="grid"] {
+    display: grid;
+    grid-template-columns: repeat(var(--acms-columns, 3), 1fr);
+    gap: calc(var(--acms-space-unit, 1.25rem) * 2.5);
+  }
+  [data-acms-blog-list][data-layout="list"] {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--acms-space-unit, 1.25rem) * 2.5);
+  }
+  [data-acms-empty] {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 3rem;
+    color: var(--acms-color-text-muted, #9a9089);
+    font-family: var(--acms-font-body, inherit);
+    font-weight: 300;
+  }
+
+  @media (max-width: 768px) {
+    [data-acms-blog-list][data-layout="grid"] {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (min-width: 769px) and (max-width: 1024px) {
+    [data-acms-blog-list][data-layout="grid"] {
+      grid-template-columns: repeat(min(var(--acms-columns, 3), 2), 1fr);
+    }
+  }
+</style>

@@ -1,0 +1,124 @@
+---
+/**
+ * AgentCMS — FeaturedPosts
+ * Hero layout for featuring posts on the homepage.
+ * "hero" = 1 large + 2 small. "row" = equal cards. "stack" = vertical list.
+ */
+import BlogPostCard from "./BlogPostCard.astro";
+
+interface Props {
+  posts: Array<{
+    slug: string;
+    title: string;
+    description: string;
+    publishedAt: string;
+    tags: string[];
+    category?: string;
+    author: string;
+    authorType: "agent" | "human";
+    featuredImage?: string;
+    readingTime?: number;
+  }>;
+  basePath?: string;
+  layout?: "hero" | "row" | "stack";
+  title?: string;
+  linkToAll?: string;
+  class?: string;
+}
+
+const {
+  posts,
+  basePath = "/blog",
+  layout = "hero",
+  title,
+  linkToAll,
+  class: className,
+} = Astro.props;
+---
+
+<section data-acms-featured data-layout={layout} class:list={[className]}>
+  {(title || linkToAll) && (
+    <div data-acms-featured-header>
+      {title && <h2 data-acms-featured-title>{title}</h2>}
+      {linkToAll && <a href={linkToAll} data-acms-featured-link>View all →</a>}
+    </div>
+  )}
+  <div data-acms-featured-grid>
+    {posts.map((post, i) => (
+      <div data-acms-featured-item data-index={i}>
+        <BlogPostCard
+          post={post}
+          basePath={basePath}
+          headingLevel="h3"
+        />
+      </div>
+    ))}
+  </div>
+</section>
+
+<style>
+  [data-acms-featured] {
+    max-width: var(--acms-max-width, 68rem);
+    margin-inline: auto;
+    padding: calc(var(--acms-space-unit, 1.25rem) * 2) var(--acms-space-unit, 1.25rem);
+  }
+  [data-acms-featured-header] {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: calc(var(--acms-space-unit, 1.25rem) * 2);
+  }
+  [data-acms-featured-title] {
+    font-family: var(--acms-font-heading, inherit);
+    font-size: 1.75rem;
+    font-weight: 300;
+    color: var(--acms-color-text, inherit);
+    margin: 0;
+  }
+  [data-acms-featured-link] {
+    color: var(--acms-color-accent, #8b7355);
+    text-decoration: none;
+    font-family: var(--acms-font-mono, monospace);
+    font-size: 0.8rem;
+    font-weight: 300;
+    transition: opacity 0.4s ease;
+  }
+  [data-acms-featured-link]:hover {
+    opacity: 0.6;
+  }
+
+  /* Hero layout: first card spans 2 rows */
+  [data-layout="hero"] [data-acms-featured-grid] {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: calc(var(--acms-space-unit, 1.25rem) * 2.5);
+  }
+  [data-layout="hero"] [data-acms-featured-item][data-index="0"] {
+    grid-row: 1 / -1;
+  }
+
+  /* Row layout: equal cards */
+  [data-layout="row"] [data-acms-featured-grid] {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: calc(var(--acms-space-unit, 1.25rem) * 2.5);
+  }
+
+  /* Stack layout: vertical list */
+  [data-layout="stack"] [data-acms-featured-grid] {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--acms-space-unit, 1.25rem) * 1.5);
+  }
+
+  @media (max-width: 768px) {
+    [data-layout="hero"] [data-acms-featured-grid] {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto;
+    }
+    [data-layout="hero"] [data-acms-featured-item][data-index="0"] {
+      grid-row: auto;
+    }
+  }
+</style>

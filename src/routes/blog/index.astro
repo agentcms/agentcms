@@ -1,0 +1,56 @@
+---
+/**
+ * AgentCMS — Auto-mode Blog Index Page
+ * Injected at {basePath}/ when mode is "auto".
+ * Override by creating your own page at the same path.
+ */
+import BlogHeader from "@agentcms/core/components/BlogHeader.astro";
+import BlogList from "@agentcms/core/components/BlogList.astro";
+import Pagination from "@agentcms/core/components/Pagination.astro";
+import { getAgentCMSPosts, getAgentCMSConfig } from "@agentcms/core";
+
+const config = await getAgentCMSConfig();
+const basePath = globalThis.__AGENTCMS_CONFIG__?.basePath || "/blog";
+const perPage = globalThis.__AGENTCMS_CONFIG__?.postsPerPage || 12;
+
+const page = Math.max(1, Number(Astro.url.searchParams.get("page") || "1"));
+const { posts, totalPages, currentPage } = await getAgentCMSPosts({
+  page,
+  limit: perPage,
+});
+
+const title = config?.name || "Blog";
+const description = config?.description || "";
+---
+
+<html lang={config?.language || "en"}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    {description && <meta name="description" content={description} />}
+    <link rel="alternate" type="application/rss+xml" title={title} href="/feed.xml" />
+  </head>
+  <body data-acms-page="blog-index">
+    <BlogHeader title={title} description={description} />
+    <main>
+      <BlogList posts={posts} basePath={basePath} />
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        basePath={basePath}
+      />
+    </main>
+  </body>
+</html>
+
+<style is:global>
+  /* Minimal reset for auto-mode standalone pages */
+  [data-acms-page] {
+    margin: 0;
+    font-family: var(--acms-font-body, "Cormorant Garamond", "Garamond", "Georgia", serif);
+    background: var(--acms-color-bg, #faf8f5);
+    color: var(--acms-color-text, #3d3833);
+    -webkit-font-smoothing: antialiased;
+  }
+</style>

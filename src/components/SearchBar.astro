@@ -1,0 +1,140 @@
+---
+/**
+ * AgentCMS — SearchBar
+ * Client-side search across post titles and descriptions.
+ * Renders as an Astro island — add client:load or client:idle when using.
+ *
+ * Usage:
+ *   <SearchBar posts={allPosts} basePath="/blog" client:idle />
+ */
+
+interface Props {
+  /** Post index entries to search through */
+  posts: Array<{
+    slug: string;
+    title: string;
+    description: string;
+    tags: string[];
+  }>;
+  /** Base path for post links. Default: "/blog" */
+  basePath?: string;
+  /** Placeholder text. Default: "Search posts..." */
+  placeholder?: string;
+  /** Max results to show. Default: 5 */
+  maxResults?: number;
+  class?: string;
+}
+
+const {
+  posts,
+  basePath = "/blog",
+  placeholder = "Search posts\u2026",
+  maxResults = 5,
+  class: className,
+} = Astro.props;
+---
+
+<div data-acms-search class:list={[className]}>
+  <input
+    type="search"
+    data-acms-search-input
+    placeholder={placeholder}
+    autocomplete="off"
+  />
+  <ul data-acms-search-results></ul>
+</div>
+
+<script define:vars={{ posts, basePath, maxResults }}>
+  const input = document.querySelector("[data-acms-search-input]");
+  const results = document.querySelector("[data-acms-search-results]");
+  if (!input || !results) throw new Error("SearchBar: missing elements");
+
+  let timeout;
+  input.addEventListener("input", () => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => search(input.value), 150);
+  });
+
+  // Close on click outside
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("[data-acms-search]")) {
+      results.innerHTML = "";
+    }
+  });
+
+  function search(query) {
+    results.innerHTML = "";
+    const q = query.toLowerCase().trim();
+    if (!q) return;
+
+    const matches = posts
+      .filter((p) => {
+        const hay = `${p.title} ${p.description} ${p.tags.join(" ")}`.toLowerCase();
+        return q.split(/\s+/).every((word) => hay.includes(word));
+      })
+      .slice(0, maxResults);
+
+    for (const post of matches) {
+      const li = document.createElement("li");
+      li.setAttribute("data-acms-search-result", "");
+      const a = document.createElement("a");
+      a.href = `${basePath}/${post.slug}`;
+      a.textContent = post.title;
+      li.appendChild(a);
+      results.appendChild(li);
+    }
+  }
+</script>
+
+<style>
+  [data-acms-search] {
+    position: relative;
+    font-family: var(--acms-font-mono, monospace);
+  }
+  [data-acms-search-input] {
+    width: 100%;
+    padding: 0.6rem 1rem;
+    font-family: inherit;
+    font-size: 0.85rem;
+    font-weight: 300;
+    color: var(--acms-color-text, inherit);
+    background: var(--acms-color-bg, #faf8f5);
+    border: 1px solid var(--acms-color-border, #e5dfd6);
+    border-radius: var(--acms-radius, 0);
+    outline: none;
+    transition: border-color 0.3s ease;
+  }
+  [data-acms-search-input]:focus {
+    border-color: var(--acms-color-accent, #8b7355);
+  }
+  [data-acms-search-input]::placeholder {
+    color: var(--acms-color-text-muted, #9a9089);
+  }
+  [data-acms-search-results] {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--acms-color-bg, #faf8f5);
+    border: 1px solid var(--acms-color-border, #e5dfd6);
+    border-top: none;
+    z-index: 100;
+  }
+  [data-acms-search-results]:empty {
+    display: none;
+  }
+  [data-acms-search-result] a {
+    display: block;
+    padding: 0.5rem 1rem;
+    color: var(--acms-color-text, inherit);
+    text-decoration: none;
+    font-size: 0.85rem;
+    transition: background 0.2s ease;
+  }
+  [data-acms-search-result] a:hover {
+    background: var(--acms-color-border, #e5dfd6);
+  }
+</style>
