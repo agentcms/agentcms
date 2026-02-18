@@ -17,11 +17,11 @@ import type { AgentCMSOptions } from "./types.js";
  * Typed helper for defining AgentCMS config in a separate file.
  *
  * Usage in agentcms.config.ts:
- *   import { defineAgentCMSConfig } from "@agentcms/core";
+ *   import { defineAgentCMSConfig } from "@agentcms/agentcms";
  *   export default defineAgentCMSConfig({ mode: "auto", site: { ... } });
  *
  * Then in astro.config.mjs:
- *   import agentcms from "@agentcms/core";
+ *   import agentcms from "@agentcms/agentcms";
  *   import config from "./agentcms.config";
  *   export default defineConfig({ integrations: [agentcms(config)] });
  */
@@ -59,7 +59,7 @@ export {
 // They read from KV via the cloudflare:workers env binding.
 //
 // Usage in an .astro file:
-//   import { getAgentCMSPosts, getAgentCMSPost } from "agentcms";
+//   import { getAgentCMSPosts, getAgentCMSPost } from "@agentcms/agentcms";
 //   const { posts } = await getAgentCMSPosts({ limit: 10 });
 
 import type {

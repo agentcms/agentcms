@@ -3,7 +3,7 @@
 // ============================================================================
 
 import type { APIRoute } from "astro";
-import { getAgentCMSPosts, getAgentCMSConfig } from "@agentcms/core";
+import { getAgentCMSPosts, getAgentCMSConfig } from "@agentcms/agentcms";
 
 function escapeXml(s: string): string {
   return s

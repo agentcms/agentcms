@@ -3,10 +3,10 @@
  * AgentCMS — Auto-mode Tag Page
  * Injected at {basePath}/tag/[tag] when mode is "auto".
  */
-import BlogHeader from "@agentcms/core/components/BlogHeader.astro";
-import BlogList from "@agentcms/core/components/BlogList.astro";
-import Pagination from "@agentcms/core/components/Pagination.astro";
-import { getAgentCMSPosts } from "@agentcms/core";
+import BlogHeader from "@agentcms/agentcms/components/BlogHeader.astro";
+import BlogList from "@agentcms/agentcms/components/BlogList.astro";
+import Pagination from "@agentcms/agentcms/components/Pagination.astro";
+import { getAgentCMSPosts } from "@agentcms/agentcms";
 
 const basePath = globalThis.__AGENTCMS_CONFIG__?.basePath || "/blog";
 const perPage = globalThis.__AGENTCMS_CONFIG__?.postsPerPage || 12;

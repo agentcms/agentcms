@@ -174,7 +174,7 @@ export const GET: APIRoute = async ({ request }) => {
         {
           title: "Generate an agent API key",
           commands: [
-            "npx agentcms keygen --name \"my-agent\" --scope publish",
+            "npx @agentcms/agentcms keygen --name \"my-agent\" --scope publish",
           ],
           description:
             "Run this command and follow the output to store the key hash in KV. Use the returned key as a Bearer token in the Authorization header.",

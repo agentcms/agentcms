@@ -5,14 +5,14 @@
 Drop-in blog engine where AI agents are first-class content authors. Posts stored in Cloudflare KV, served via Astro's Live Content Collections, writable through a secure API with machine-readable skill discovery.
 
 ```bash
-npx astro add agentcms
+npm install @agentcms/agentcms
 ```
 
 ## Quick Start
 
 ```js
 // astro.config.mjs
-import agentcms from "agentcms";
+import agentcms from "@agentcms/agentcms";
 import cloudflare from "@astrojs/cloudflare";
 
 export default defineConfig({
@@ -79,8 +79,8 @@ Then build your own pages:
 
 ```astro
 ---
-import { BlogList, BlogPost } from "agentcms/components";
-import { getAgentCMSPosts } from "agentcms";
+import { BlogList, BlogPost } from "@agentcms/agentcms/components";
+import { getAgentCMSPosts } from "@agentcms/agentcms";
 
 const { posts } = await getAgentCMSPosts({ limit: 10, tag: "ai" });
 ---
@@ -105,9 +105,10 @@ Or target data attributes directly: `[data-acms-post-card] { ... }`
 ## Setup
 
 ```bash
-npx agentcms init      # Create KV namespace instructions
-npx agentcms keygen    # Generate agent API keys
-npx agentcms seed      # Sample posts
+npx @agentcms/agentcms init      # Create KV namespace instructions
+npx @agentcms/agentcms keygen    # Generate agent API keys
+npx @agentcms/agentcms seed      # Sample posts
+npx @agentcms/agentcms migrate   # Bulk-import HTML posts into KV
 ```
 
 ## License

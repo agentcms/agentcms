@@ -4,10 +4,10 @@
  * Injected at {basePath}/ when mode is "auto".
  * Override by creating your own page at the same path.
  */
-import BlogHeader from "@agentcms/core/components/BlogHeader.astro";
-import BlogList from "@agentcms/core/components/BlogList.astro";
-import Pagination from "@agentcms/core/components/Pagination.astro";
-import { getAgentCMSPosts, getAgentCMSConfig } from "@agentcms/core";
+import BlogHeader from "@agentcms/agentcms/components/BlogHeader.astro";
+import BlogList from "@agentcms/agentcms/components/BlogList.astro";
+import Pagination from "@agentcms/agentcms/components/Pagination.astro";
+import { getAgentCMSPosts, getAgentCMSConfig } from "@agentcms/agentcms";
 
 const config = await getAgentCMSConfig();
 const basePath = globalThis.__AGENTCMS_CONFIG__?.basePath || "/blog";

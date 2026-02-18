@@ -2,7 +2,7 @@
  * AgentCMS — Prose Typography
  * Standalone prose styling for rendered markdown content.
  *
- * Import: import "@agentcms/core/theme/prose.css"
+ * Import: import "@agentcms/agentcms/theme/prose.css"
  * Usage:  <div class="acms-prose" set:html={html} />
  *
  * Also applied automatically by <BlogPost> via [data-acms-prose].

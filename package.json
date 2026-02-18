@@ -1,13 +1,13 @@
 {
-  "name": "@agentcms/core",
-  "version": "0.1.0",
+  "name": "@agentcms/agentcms",
+  "version": "0.5.4",
   "description": "AI-agent-first headless CMS for Astro 6 + Cloudflare",
   "type": "module",
   "license": "MIT",
   "author": "MC2 Ventures",
   "repository": {
     "type": "git",
-    "url": "https://github.com/agentcms/agentcms"
+    "url": "git+https://github.com/agentcms/agentcms.git"
   },
   "keywords": [
     "astro",
@@ -49,6 +49,7 @@
   },
   "dependencies": {
     "marked": "^15.0.0",
+    "node-html-parser": "^7.0.0",
     "sanitize-html": "^2.17.0",
     "zod": "^4.0.0"
   },
@@ -60,6 +61,6 @@
     "vitest": "^3.0.0"
   },
   "bin": {
-    "agentcms": "./dist/cli/index.js"
+    "agentcms": "dist/cli/index.js"
   }
 }

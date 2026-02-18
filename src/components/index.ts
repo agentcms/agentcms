@@ -1,5 +1,5 @@
 // AgentCMS Components — Re-exports
-// Use: import { BlogList, BlogPost } from "@agentcms/core/components";
+// Use: import { BlogList, BlogPost } from "@agentcms/agentcms/components";
 
 // Page-level components
 export { default as BlogHeader } from "./BlogHeader.astro";

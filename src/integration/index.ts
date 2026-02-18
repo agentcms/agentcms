@@ -3,7 +3,7 @@
 // ============================================================================
 //
 // Usage:
-//   import agentcms from "agentcms";
+//   import agentcms from "@agentcms/agentcms";
 //   export default defineConfig({
 //     integrations: [agentcms({ mode: "auto" })],
 //   });
@@ -47,23 +47,23 @@ export default function agentcms(
         // ---------------------------------------------------------------
         injectRoute({
           pattern: "/api/agent/publish",
-          entrypoint: "@agentcms/core/routes/api/publish.ts",
+          entrypoint: "@agentcms/agentcms/routes/api/publish.ts",
         });
         injectRoute({
           pattern: "/api/agent/posts",
-          entrypoint: "@agentcms/core/routes/api/list.ts",
+          entrypoint: "@agentcms/agentcms/routes/api/list.ts",
         });
         injectRoute({
           pattern: "/api/agent/posts/[slug]",
-          entrypoint: "@agentcms/core/routes/api/post.ts",
+          entrypoint: "@agentcms/agentcms/routes/api/post.ts",
         });
         injectRoute({
           pattern: "/api/agent/context",
-          entrypoint: "@agentcms/core/routes/api/context.ts",
+          entrypoint: "@agentcms/agentcms/routes/api/context.ts",
         });
         injectRoute({
           pattern: "/api/agent/upload",
-          entrypoint: "@agentcms/core/routes/api/upload.ts",
+          entrypoint: "@agentcms/agentcms/routes/api/upload.ts",
         });
 
         // ---------------------------------------------------------------
@@ -71,7 +71,7 @@ export default function agentcms(
         // ---------------------------------------------------------------
         injectRoute({
           pattern: "/images/[...path]",
-          entrypoint: "@agentcms/core/routes/images.ts",
+          entrypoint: "@agentcms/agentcms/routes/images.ts",
         });
 
         // ---------------------------------------------------------------
@@ -80,7 +80,7 @@ export default function agentcms(
         if (skillEndpoint) {
           injectRoute({
             pattern: "/.well-known/agent-skill.json",
-            entrypoint: "@agentcms/core/routes/skill.ts",
+            entrypoint: "@agentcms/agentcms/routes/skill.ts",
           });
         }
 
@@ -90,21 +90,21 @@ export default function agentcms(
         if (mode === "auto") {
           injectRoute({
             pattern: base || "/blog",
-            entrypoint: "@agentcms/core/routes/blog/index.astro",
+            entrypoint: "@agentcms/agentcms/routes/blog/index.astro",
           });
           injectRoute({
             pattern: `${base || "/blog"}/[slug]`,
-            entrypoint: "@agentcms/core/routes/blog/[slug].astro",
+            entrypoint: "@agentcms/agentcms/routes/blog/[slug].astro",
           });
           injectRoute({
             pattern: `${base || "/blog"}/tag/[tag]`,
-            entrypoint: "@agentcms/core/routes/blog/tag/[tag].astro",
+            entrypoint: "@agentcms/agentcms/routes/blog/tag/[tag].astro",
           });
 
           if (rss) {
             injectRoute({
               pattern: "/feed.xml",
-              entrypoint: "@agentcms/core/routes/feed.xml.ts",
+              entrypoint: "@agentcms/agentcms/routes/feed.xml.ts",
             });
           }
 
@@ -117,7 +117,7 @@ export default function agentcms(
         // Inject theme CSS
         // ---------------------------------------------------------------
         if (theme === "default") {
-          injectScript("page", `import "@agentcms/core/theme/default.css";`);
+          injectScript("page", `import "@agentcms/agentcms/theme/default.css";`);
         }
 
         // ---------------------------------------------------------------

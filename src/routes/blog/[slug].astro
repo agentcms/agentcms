@@ -3,8 +3,8 @@
  * AgentCMS — Auto-mode Single Post Page
  * Injected at {basePath}/[slug] when mode is "auto".
  */
-import BlogPostComponent from "@agentcms/core/components/BlogPost.astro";
-import { getAgentCMSPost, getAgentCMSConfig } from "@agentcms/core";
+import BlogPostComponent from "@agentcms/agentcms/components/BlogPost.astro";
+import { getAgentCMSPost, getAgentCMSConfig } from "@agentcms/agentcms";
 
 const config = await getAgentCMSConfig();
 const basePath = globalThis.__AGENTCMS_CONFIG__?.basePath || "/blog";
