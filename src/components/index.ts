@@ -18,3 +18,6 @@ export { default as SearchBar } from "./SearchBar.astro";
 export { default as AuthorBadge } from "./AuthorBadge.astro";
 export { default as ReadingTime } from "./ReadingTime.astro";
 export { default as TagBadge } from "./TagBadge.astro";
+
+// Meta components
+export { default as SkillLink } from "./SkillLink.astro";

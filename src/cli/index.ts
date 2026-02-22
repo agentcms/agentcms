@@ -227,30 +227,54 @@ async function runMigrate() {
 async function main() {
   switch (command) {
     case "keygen": {
+      const { execSync } = await import("node:child_process");
+
       const name = getFlag("name") || "default-agent";
       const scope = (getFlag("scope") || "publish") as "publish" | "draft-only" | "read-only" | "admin";
+      const remote = hasFlag("remote");
       const prefix = scope === "draft-only" ? "acms_draft" as const : "acms_live" as const;
 
       const apiKey = generateApiKey(prefix);
       const keyHash = await hashApiKey(apiKey);
+      const remoteFlag = remote ? " --remote" : "";
 
-      console.log("");
-      console.log("  🔑 AgentCMS API Key Generated");
-      console.log("  ─────────────────────────────");
-      console.log(`  Name:   ${name}`);
-      console.log(`  Scope:  ${scope}`);
-      console.log(`  Key:    ${apiKey}`);
-      console.log("");
-      console.log("  ⚠️  Save this key — it cannot be recovered.");
-      console.log("");
-      console.log("  To register this key, run:");
-      console.log(`  npx wrangler kv key put --binding=AGENTCMS_KV "agents:${keyHash}" '${JSON.stringify({
+      const keyRecord = JSON.stringify({
         name,
         keyHash,
         scope,
         createdAt: new Date().toISOString(),
         rateLimit: 10,
-      })}'`);
+      });
+
+      console.log("");
+      console.log("  🔑 AgentCMS Key Generator");
+      console.log("  ─────────────────────────");
+      console.log(`  Name:   ${name}`);
+      console.log(`  Scope:  ${scope}`);
+      console.log(`  Target: ${remote ? "remote (production)" : "local (dev)"}`);
+      console.log("");
+
+      // Write key record directly to KV via wrangler
+      try {
+        execSync(
+          `npx wrangler kv key put --binding=AGENTCMS_KV${remoteFlag} "agents:${keyHash}" '${keyRecord}'`,
+          { stdio: "pipe" }
+        );
+        console.log("  ✅ Key registered in KV");
+      } catch (err) {
+        console.error("  ❌ Failed to register key in KV.");
+        console.error("     Make sure wrangler is logged in and wrangler.toml has AGENTCMS_KV binding.");
+        console.error("");
+        console.error("  You can register manually:");
+        console.error(`  npx wrangler kv key put --binding=AGENTCMS_KV${remoteFlag} "agents:${keyHash}" '${keyRecord}'`);
+        console.error("");
+        process.exit(1);
+      }
+
+      console.log("");
+      console.log(`  Key:    ${apiKey}`);
+      console.log("");
+      console.log("  ⚠️  Save this key now — it cannot be recovered.");
       console.log("");
       break;
     }
@@ -350,7 +374,7 @@ async function main() {
       console.log("  ────────────");
       console.log("  Commands:");
       console.log("    init                       Set up KV namespace");
-      console.log("    keygen --name <n> [--scope] Generate API key");
+      console.log("    keygen --name <n> [--scope] [--remote] Generate API key");
       console.log("    seed                       Sample posts (KV commands)");
       console.log("    migrate                    Bulk-import HTML posts into KV");
       console.log("");
@@ -372,4 +396,9 @@ async function main() {
   }
 }
 
-main().catch(console.error);
+main()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

@@ -30,6 +30,7 @@ const description = config?.description || "";
     <title>{title}</title>
     {description && <meta name="description" content={description} />}
     <link rel="alternate" type="application/rss+xml" title={title} href="/feed.xml" />
+    <link rel="agent-skill" type="application/json" href="/.well-known/agent-skill.json" />
   </head>
   <body data-acms-page="blog-index">
     <BlogHeader title={title} description={description} />
