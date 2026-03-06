@@ -27,10 +27,11 @@ export async function sendWebhook(
   kv: KVNamespace,
   event: WebhookEvent,
   post: AgentCMSPost,
-  siteUrl?: string
+  siteUrl?: string,
+  prefix?: string
 ): Promise<void> {
   try {
-    const kvConfig = await getConfig(kv);
+    const kvConfig = await getConfig(kv, prefix);
     const inlineSite = globalThis.__AGENTCMS_CONFIG__?.site;
     const config = kvConfig || inlineSite || null;
     const webhookUrl = config?.moderation?.notifyOnPublish;

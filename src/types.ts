@@ -115,6 +115,10 @@ export interface AgentCMSOptions {
   postsPerPage?: number;
   /** Generate RSS feed. Default: true */
   rss?: boolean;
+  /** Generate sitemap.xml. Default: true */
+  sitemap?: boolean;
+  /** Additional external sitemaps for robots.txt. */
+  additionalSitemaps?: string[];
   /** Serve /.well-known/agent-skill.json. Default: true */
   skillEndpoint?: boolean;
   /** Include default CSS theme. Default: "default" */
@@ -123,8 +127,28 @@ export interface AgentCMSOptions {
   kvBinding?: string;
   /** R2 binding name for image storage. Default: "AGENTCMS_R2" */
   r2Binding?: string;
+  /** KV key prefix to isolate data when sharing a namespace. Default: none */
+  kvPrefix?: string;
   /** Inline site config. Used as fallback when KV has no config:site key. */
   site?: AgentCMSSiteConfig;
+}
+
+// --- Sitemap & Robots.txt Options ---
+
+export interface SitemapOptions {
+  basePath?: string;
+  staticPages?: Array<{
+    loc: string;
+    lastmod?: string;
+    changefreq?: "always" | "hourly" | "daily" | "weekly" | "monthly" | "yearly" | "never";
+    priority?: number;
+  }>;
+  additionalSitemaps?: string[];
+}
+
+export interface RobotsTxtOptions {
+  additionalSitemaps?: string[];
+  disallow?: string[];
 }
 
 // --- Data Helper Options ---

@@ -21,6 +21,8 @@ export default function agentcms(
     basePath = "/blog",
     postsPerPage = 12,
     rss = true,
+    sitemap = true,
+    additionalSitemaps,
     skillEndpoint = true,
     theme = "default",
     kvBinding = "AGENTCMS_KV",
@@ -108,6 +110,18 @@ export default function agentcms(
             });
           }
 
+          if (sitemap) {
+            injectRoute({
+              pattern: "/sitemap.xml",
+              entrypoint: "@agentcms/agentcms/routes/sitemap.xml.ts",
+            });
+          }
+
+          injectRoute({
+            pattern: "/robots.txt",
+            entrypoint: "@agentcms/agentcms/routes/robots.txt.ts",
+          });
+
           logger.info(
             `Auto routes: ${base}/, ${base}/[slug], ${base}/tag/[tag]`
           );
@@ -134,6 +148,7 @@ export default function agentcms(
             postsPerPage,
             kvBinding,
             r2Binding,
+            ...(additionalSitemaps ? { additionalSitemaps } : {}),
             ...(site ? { site } : {}),
           })};`
         );
@@ -154,10 +169,12 @@ export default function agentcms(
       "astro:build:done": ({ logger }) => {
         logger.info("──────────────────────────────────────");
         logger.info("AgentCMS build complete");
-        logger.info(`  Blog:  ${base || "/blog"}`);
-        logger.info("  API:   /api/agent/*");
-        logger.info("  Images: /images/*");
-        logger.info("  Skill: /.well-known/agent-skill.json");
+        logger.info(`  Blog:    ${base || "/blog"}`);
+        logger.info("  API:     /api/agent/*");
+        logger.info("  Images:  /images/*");
+        logger.info("  Skill:   /.well-known/agent-skill.json");
+        if (sitemap) logger.info("  Sitemap: /sitemap.xml");
+        logger.info("  Robots:  /robots.txt");
         logger.info("──────────────────────────────────────");
       },
     },

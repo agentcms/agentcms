@@ -42,6 +42,8 @@ export type {
   AgentKeyRecord,
   AgentKeyScope,
   AgentSkillDefinition,
+  SitemapOptions,
+  RobotsTxtOptions,
   X402Config,
   X402SubmissionRecord,
 } from "./types.js";
@@ -68,7 +70,8 @@ import type {
   GetPostsResult,
   AgentCMSSiteConfig,
 } from "./types.js";
-import { getIndex, getPost, getConfig } from "./utils/kv.js";
+import { getPost } from "./utils/kv.js";
+import { queryPosts, queryTags, queryCategories, queryConfig } from "./utils/query.js";
 
 /**
  * Get the KV namespace binding.
@@ -96,59 +99,8 @@ async function getKV(): Promise<KVNamespace> {
 export async function getAgentCMSPosts(
   options: GetPostsOptions = {}
 ): Promise<GetPostsResult> {
-  const {
-    page = 1,
-    limit = 12,
-    tag,
-    category,
-    status = "published",
-    featured,
-    author,
-    authorType,
-  } = options;
-
   const kv = await getKV();
-  const index = await getIndex(kv);
-
-  let filtered = index.posts;
-
-  // Apply filters
-  if (status !== "all") {
-    // Index only contains published posts by default
-    // Draft filtering would need separate KV list
-  }
-  if (tag) {
-    filtered = filtered.filter((p) => p.tags.includes(tag));
-  }
-  if (category) {
-    filtered = filtered.filter((p) => p.category === category);
-  }
-  if (featured !== undefined) {
-    filtered = filtered.filter((p) => p.featured === featured);
-  }
-  if (author) {
-    filtered = filtered.filter((p) => p.author === author);
-  }
-  if (authorType) {
-    filtered = filtered.filter((p) => p.authorType === authorType);
-  }
-
-  const totalPosts = filtered.length;
-  const totalPages = Math.ceil(totalPosts / limit);
-  const offset = (page - 1) * limit;
-  const pageEntries = filtered.slice(offset, offset + limit);
-
-  // Fetch full posts for this page
-  const posts = await Promise.all(
-    pageEntries.map((entry) => getPost(kv, entry.slug))
-  );
-
-  return {
-    posts: posts.filter((p): p is AgentCMSPost => p !== null),
-    totalPages,
-    totalPosts,
-    currentPage: page,
-  };
+  return queryPosts(kv, options, globalThis.__AGENTCMS_CONFIG__?.kvPrefix);
 }
 
 /**
@@ -158,7 +110,7 @@ export async function getAgentCMSPost(
   slug: string
 ): Promise<AgentCMSPost | null> {
   const kv = await getKV();
-  return getPost(kv, slug);
+  return getPost(kv, slug, globalThis.__AGENTCMS_CONFIG__?.kvPrefix);
 }
 
 /**
@@ -168,18 +120,7 @@ export async function getAgentCMSTags(): Promise<
   Array<{ tag: string; count: number }>
 > {
   const kv = await getKV();
-  const index = await getIndex(kv);
-
-  const tagMap = new Map<string, number>();
-  for (const post of index.posts) {
-    for (const tag of post.tags) {
-      tagMap.set(tag, (tagMap.get(tag) || 0) + 1);
-    }
-  }
-
-  return Array.from(tagMap.entries())
-    .map(([tag, count]) => ({ tag, count }))
-    .sort((a, b) => b.count - a.count);
+  return queryTags(kv, globalThis.__AGENTCMS_CONFIG__?.kvPrefix);
 }
 
 /**
@@ -189,18 +130,7 @@ export async function getAgentCMSCategories(): Promise<
   Array<{ category: string; count: number }>
 > {
   const kv = await getKV();
-  const index = await getIndex(kv);
-
-  const catMap = new Map<string, number>();
-  for (const post of index.posts) {
-    if (post.category) {
-      catMap.set(post.category, (catMap.get(post.category) || 0) + 1);
-    }
-  }
-
-  return Array.from(catMap.entries())
-    .map(([category, count]) => ({ category, count }))
-    .sort((a, b) => b.count - a.count);
+  return queryCategories(kv, globalThis.__AGENTCMS_CONFIG__?.kvPrefix);
 }
 
 /**
@@ -208,7 +138,7 @@ export async function getAgentCMSCategories(): Promise<
  */
 export async function getAgentCMSConfig(): Promise<AgentCMSSiteConfig | null> {
   const kv = await getKV();
-  return getConfig(kv);
+  return queryConfig(kv, globalThis.__AGENTCMS_CONFIG__?.kvPrefix);
 }
 
 // --- Global config type (set by integration via injectScript) ---
@@ -221,6 +151,8 @@ declare global {
         postsPerPage: number;
         kvBinding: string;
         r2Binding: string;
+        kvPrefix?: string;
+        additionalSitemaps?: string[];
         site?: import("./types.js").AgentCMSSiteConfig;
       }
     | undefined;

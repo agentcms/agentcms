@@ -10,55 +10,76 @@ import type {
   AgentKeyRecord,
 } from "../types.js";
 
-// --- KV Key Prefixes ---
-export const KEYS = {
-  post: (slug: string) => `posts:${slug}`,
-  draft: (slug: string) => `posts:draft:${slug}`,
-  index: "posts:index",
-  config: "config:site",
-  agent: (keyHash: string) => `agents:${keyHash}`,
-  rateLimit: (keyHash: string, hour: string) => `ratelimit:${keyHash}:${hour}`,
-} as const;
+// --- KV Key Helpers ---
+
+/**
+ * Build prefixed KV keys. When prefix is set (e.g. "raisolo"), keys become
+ * "raisolo:posts:slug" instead of "posts:slug". This prevents collisions
+ * when multiple sites share a single KV namespace.
+ */
+export function kvKeys(prefix?: string) {
+  const p = prefix ? `${prefix}:` : "";
+  return {
+    post: (slug: string) => `${p}posts:${slug}`,
+    draft: (slug: string) => `${p}posts:draft:${slug}`,
+    index: `${p}posts:index`,
+    config: `${p}config:site`,
+    agent: (keyHash: string) => `${p}agents:${keyHash}`,
+    rateLimit: (keyHash: string, hour: string) => `${p}ratelimit:${keyHash}:${hour}`,
+  };
+}
+
+/** Default keys (no prefix) — backwards compatible. */
+export const KEYS = kvKeys();
 
 // --- Post Operations ---
 
 export async function getPost(
   kv: KVNamespace,
-  slug: string
+  slug: string,
+  prefix?: string
 ): Promise<AgentCMSPost | null> {
-  return kv.get(KEYS.post(slug), "json");
+  const keys = prefix ? kvKeys(prefix) : KEYS;
+  return kv.get(keys.post(slug), "json");
 }
 
 export async function putPost(
   kv: KVNamespace,
-  post: AgentCMSPost
+  post: AgentCMSPost,
+  prefix?: string
 ): Promise<void> {
+  const keys = prefix ? kvKeys(prefix) : KEYS;
   const key =
-    post.status === "draft" ? KEYS.draft(post.slug) : KEYS.post(post.slug);
+    post.status === "draft" ? keys.draft(post.slug) : keys.post(post.slug);
   await kv.put(key, JSON.stringify(post));
 }
 
 export async function deletePost(
   kv: KVNamespace,
-  slug: string
+  slug: string,
+  prefix?: string
 ): Promise<void> {
-  await kv.delete(KEYS.post(slug));
-  await kv.delete(KEYS.draft(slug));
+  const keys = prefix ? kvKeys(prefix) : KEYS;
+  await kv.delete(keys.post(slug));
+  await kv.delete(keys.draft(slug));
 }
 
 // --- Index Operations ---
 
-export async function getIndex(kv: KVNamespace): Promise<PostIndex> {
-  const index = await kv.get<PostIndex>(KEYS.index, "json");
+export async function getIndex(kv: KVNamespace, prefix?: string): Promise<PostIndex> {
+  const keys = prefix ? kvKeys(prefix) : KEYS;
+  const index = await kv.get<PostIndex>(keys.index, "json");
   return index || { posts: [], totalCount: 0, lastUpdated: "" };
 }
 
 export async function updateIndex(
   kv: KVNamespace,
   post: AgentCMSPost,
-  action: "upsert" | "remove" = "upsert"
+  action: "upsert" | "remove" = "upsert",
+  prefix?: string
 ): Promise<void> {
-  const index = await getIndex(kv);
+  const keys = prefix ? kvKeys(prefix) : KEYS;
+  const index = await getIndex(kv, prefix);
 
   // Remove existing entry
   index.posts = index.posts.filter((p) => p.slug !== post.slug);
@@ -88,22 +109,26 @@ export async function updateIndex(
   index.totalCount = index.posts.length;
   index.lastUpdated = new Date().toISOString();
 
-  await kv.put(KEYS.index, JSON.stringify(index));
+  await kv.put(keys.index, JSON.stringify(index));
 }
 
 // --- Config ---
 
 export async function getConfig(
-  kv: KVNamespace
+  kv: KVNamespace,
+  prefix?: string
 ): Promise<AgentCMSSiteConfig | null> {
-  return kv.get<AgentCMSSiteConfig>(KEYS.config, "json");
+  const keys = prefix ? kvKeys(prefix) : KEYS;
+  return kv.get<AgentCMSSiteConfig>(keys.config, "json");
 }
 
 export async function putConfig(
   kv: KVNamespace,
-  config: AgentCMSSiteConfig
+  config: AgentCMSSiteConfig,
+  prefix?: string
 ): Promise<void> {
-  await kv.put(KEYS.config, JSON.stringify(config));
+  const keys = prefix ? kvKeys(prefix) : KEYS;
+  await kv.put(keys.config, JSON.stringify(config));
 }
 
 // --- Auth ---
@@ -119,18 +144,20 @@ export async function hashApiKey(key: string): Promise<string> {
 
 export async function validateApiKey(
   kv: KVNamespace,
-  authHeader: string | null
+  authHeader: string | null,
+  prefix?: string
 ): Promise<AgentKeyRecord | null> {
   if (!authHeader?.startsWith("Bearer ")) return null;
 
+  const keys = prefix ? kvKeys(prefix) : KEYS;
   const apiKey = authHeader.slice(7);
   const keyHash = await hashApiKey(apiKey);
-  const record = await kv.get<AgentKeyRecord>(KEYS.agent(keyHash), "json");
+  const record = await kv.get<AgentKeyRecord>(keys.agent(keyHash), "json");
 
   if (record) {
     // Update last used (fire and forget)
     record.lastUsedAt = new Date().toISOString();
-    kv.put(KEYS.agent(keyHash), JSON.stringify(record)).catch(() => {});
+    kv.put(keys.agent(keyHash), JSON.stringify(record)).catch(() => {});
   }
 
   return record;
@@ -141,10 +168,12 @@ export async function validateApiKey(
 export async function checkRateLimit(
   kv: KVNamespace,
   keyHash: string,
-  limit: number
+  limit: number,
+  prefix?: string
 ): Promise<{ allowed: boolean; remaining: number }> {
+  const keys = prefix ? kvKeys(prefix) : KEYS;
   const hour = new Date().toISOString().slice(0, 13);
-  const key = KEYS.rateLimit(keyHash, hour);
+  const key = keys.rateLimit(keyHash, hour);
   const current = parseInt((await kv.get(key)) || "0");
 
   if (current >= limit) {
