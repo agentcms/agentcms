@@ -1,6 +1,6 @@
 {
   "name": "@agentcms/agentcms",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "AI-agent-first headless CMS for Astro 6 + Cloudflare",
   "type": "module",
   "license": "MIT",
@@ -29,6 +29,10 @@
       "types": "./dist/handlers/index.d.ts",
       "default": "./dist/handlers/index.js"
     },
+    "./cloudflare": {
+      "types": "./dist/cloudflare/index.d.ts",
+      "default": "./dist/cloudflare/index.js"
+    },
     "./components": "./src/components/index.ts",
     "./components/*": "./src/components/*",
     "./routes/*": "./src/routes/*",
@@ -37,6 +41,7 @@
   },
   "files": [
     "dist",
+    "src/cloudflare",
     "src/components",
     "src/handlers",
     "src/routes",
