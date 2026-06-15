@@ -228,15 +228,30 @@ async function main() {
   switch (command) {
     case "keygen": {
       const { execSync } = await import("node:child_process");
+      const { readFileSync } = await import("node:fs");
 
       const name = getFlag("name") || "default-agent";
       const scope = (getFlag("scope") || "publish") as "publish" | "draft-only" | "read-only" | "admin";
       const remote = hasFlag("remote");
-      const prefix = scope === "draft-only" ? "acms_draft" as const : "acms_live" as const;
+      const keyPrefix = scope === "draft-only" ? "acms_draft" as const : "acms_live" as const;
 
-      const apiKey = generateApiKey(prefix);
+      const apiKey = generateApiKey(keyPrefix);
       const keyHash = await hashApiKey(apiKey);
       const remoteFlag = remote ? " --remote" : "";
+
+      // Read AGENTCMS_PREFIX from wrangler.toml if present
+      let kvPrefix = "";
+      try {
+        const wranglerToml = readFileSync("wrangler.toml", "utf-8");
+        const prefixMatch = wranglerToml.match(/AGENTCMS_PREFIX\s*=\s*"([^"]+)"/);
+        if (prefixMatch) {
+          kvPrefix = prefixMatch[1] + ":";
+        }
+      } catch {
+        // No wrangler.toml found, no prefix
+      }
+
+      const kvKey = `${kvPrefix}agents:${keyHash}`;
 
       const keyRecord = JSON.stringify({
         name,
@@ -252,12 +267,15 @@ async function main() {
       console.log(`  Name:   ${name}`);
       console.log(`  Scope:  ${scope}`);
       console.log(`  Target: ${remote ? "remote (production)" : "local (dev)"}`);
+      if (kvPrefix) {
+        console.log(`  Prefix: ${kvPrefix.slice(0, -1)}`);
+      }
       console.log("");
 
       // Write key record directly to KV via wrangler
       try {
         execSync(
-          `npx wrangler kv key put --binding=AGENTCMS_KV${remoteFlag} "agents:${keyHash}" '${keyRecord}'`,
+          `npx wrangler kv key put --binding=AGENTCMS_KV${remoteFlag} "${kvKey}" '${keyRecord}'`,
           { stdio: "pipe" }
         );
         console.log("  ✅ Key registered in KV");
@@ -266,7 +284,7 @@ async function main() {
         console.error("     Make sure wrangler is logged in and wrangler.toml has AGENTCMS_KV binding.");
         console.error("");
         console.error("  You can register manually:");
-        console.error(`  npx wrangler kv key put --binding=AGENTCMS_KV${remoteFlag} "agents:${keyHash}" '${keyRecord}'`);
+        console.error(`  npx wrangler kv key put --binding=AGENTCMS_KV${remoteFlag} "${kvKey}" '${keyRecord}'`);
         console.error("");
         process.exit(1);
       }
