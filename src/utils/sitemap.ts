@@ -41,7 +41,7 @@ export function generateSitemapXml(
     .join("\n");
 
   const postEntries = posts
-    .filter((p) => p.slug)
+    .filter((p) => p.slug && !p.noindex)
     .map((post) => {
       const loc = `${origin}${basePath}/${encodeURIComponent(post.slug)}`;
       const lastmod = post.publishedAt

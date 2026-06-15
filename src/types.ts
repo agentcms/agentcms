@@ -22,6 +22,10 @@ export interface AgentCMSPost {
   ogImage?: string;
   readingTime?: number;
   featured?: boolean;
+  /** Exclude this post from search engine indexing. */
+  noindex?: boolean;
+  /** Canonical URL override for SEO deduplication. */
+  canonicalUrl?: string;
   metadata: Record<string, unknown>;
   agentMetadata?: AgentMetadata;
 }
@@ -54,6 +58,7 @@ export interface PostIndexEntry {
   authorType: "agent" | "human";
   featuredImage?: string;
   featured?: boolean;
+  noindex?: boolean;
 }
 
 // --- Agent API Key ---
