@@ -13,6 +13,7 @@ import { sendWebhook } from "../../utils/webhook.js";
 const PublishSchema = z.object({
   title: z.string().min(5).max(200),
   content: z.string().min(50),
+  contentHtml: z.string().optional(),
   description: z.string().max(300).optional(),
   tags: z.array(z.string()).max(10).default([]),
   category: z.string().optional(),

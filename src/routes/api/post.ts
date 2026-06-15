@@ -13,6 +13,7 @@ import type { AgentCMSPost } from "../../types.js";
 const UpdateSchema = z.object({
   title: z.string().min(5).max(200).optional(),
   content: z.string().min(50).optional(),
+  contentHtml: z.string().optional(),
   description: z.string().max(300).optional(),
   tags: z.array(z.string()).max(10).optional(),
   category: z.string().optional(),

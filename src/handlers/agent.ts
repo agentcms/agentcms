@@ -32,6 +32,7 @@ import type { AgentCMSEnv } from "./public.js";
 const PublishSchema = z.object({
   title: z.string().min(5).max(200),
   content: z.string().min(50),
+  contentHtml: z.string().optional(),
   description: z.string().max(300).optional(),
   tags: z.array(z.string()).max(10).default([]),
   category: z.string().optional(),
@@ -44,11 +45,14 @@ const PublishSchema = z.object({
     .max(80)
     .optional(),
   featured: z.boolean().default(false),
+  noindex: z.boolean().default(false),
+  canonicalUrl: z.string().url().optional(),
 });
 
 const UpdateSchema = z.object({
   title: z.string().min(5).max(200).optional(),
   content: z.string().min(50).optional(),
+  contentHtml: z.string().optional(),
   description: z.string().max(300).optional(),
   tags: z.array(z.string()).max(10).optional(),
   category: z.string().optional(),
@@ -57,6 +61,8 @@ const UpdateSchema = z.object({
   featuredImage: z.string().url().optional().nullable(),
   ogImage: z.string().url().optional().nullable(),
   featured: z.boolean().optional(),
+  noindex: z.boolean().optional(),
+  canonicalUrl: z.string().url().optional().nullable(),
 });
 
 // --- Helpers ---
@@ -163,6 +169,8 @@ export async function handlePublish(
     featuredImage: data.featuredImage,
     readingTime: calculateReadingTime(data.content),
     featured: data.featured,
+    noindex: data.noindex,
+    canonicalUrl: data.canonicalUrl,
     metadata: {},
     agentMetadata: {
       model: request.headers.get("X-Agent-Model") || "unknown",
@@ -300,6 +308,10 @@ export async function handleAgentUpdatePost(
       data.ogImage === null
         ? undefined
         : (data.ogImage ?? existing.ogImage),
+    canonicalUrl:
+      data.canonicalUrl === null
+        ? undefined
+        : (data.canonicalUrl ?? existing.canonicalUrl),
     slug: existing.slug,
     author: existing.author,
     authorType: existing.authorType,
