@@ -10,8 +10,9 @@
 //   npx @agentcms/agentcms migrate            — Bulk-import HTML posts into Cloudflare KV
 // ============================================================================
 
+import { readFileSync } from "node:fs";
 import { generateApiKey, slugify, calculateReadingTime, generateDescription } from "../utils/content.js";
-import { hashApiKey, KEYS } from "../utils/kv.js";
+import { hashApiKey, KEYS, kvKeys } from "../utils/kv.js";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -24,6 +25,27 @@ function getFlag(name: string): string | undefined {
 
 function hasFlag(name: string): boolean {
   return args.includes(`--${name}`);
+}
+
+/**
+ * Resolve the raw KV prefix (no trailing colon) used to isolate a site's data when
+ * sharing a KV namespace. Order: --prefix flag > AGENTCMS_PREFIX env > AGENTCMS_PREFIX in
+ * the wrangler config (toml/jsonc/json). Returns undefined when none is set.
+ */
+function resolveCliPrefix(): string | undefined {
+  const flag = getFlag("prefix");
+  if (flag) return flag;
+  if (process.env.AGENTCMS_PREFIX) return process.env.AGENTCMS_PREFIX;
+  for (const file of ["wrangler.toml", "wrangler.jsonc", "wrangler.json"]) {
+    try {
+      const text = readFileSync(file, "utf-8");
+      const m = text.match(/AGENTCMS_PREFIX"?\s*[:=]\s*"([^"]+)"/);
+      if (m) return m[1];
+    } catch {
+      // try next candidate
+    }
+  }
+  return undefined;
 }
 
 async function runMigrate() {
@@ -42,6 +64,8 @@ async function runMigrate() {
   const dryRun = hasFlag("dry-run");
   const remote = hasFlag("remote");
   let namespaceId = getFlag("namespace-id");
+  const prefix = resolveCliPrefix();
+  const keys = prefix ? kvKeys(prefix) : KEYS;
 
   // Build parse options from flags
   const options = {
@@ -62,6 +86,9 @@ async function runMigrate() {
   console.log(`  Author:    ${options.defaultAuthor}`);
   console.log(`  Remote:    ${remote}`);
   console.log(`  Dry run:   ${dryRun}`);
+  if (prefix) {
+    console.log(`  Prefix:    ${prefix}`);
+  }
   if (namespaceId) {
     console.log(`  KV:        ${namespaceId}`);
   }
@@ -133,7 +160,7 @@ async function runMigrate() {
   );
 
   const kvEntries = validPosts.map((post) => ({
-    key: KEYS.post(post.slug),
+    key: keys.post(post.slug),
     value: JSON.stringify(post),
   }));
 
@@ -156,7 +183,7 @@ async function runMigrate() {
   };
 
   kvEntries.push({
-    key: KEYS.index,
+    key: keys.index,
     value: JSON.stringify(indexEntry),
   });
 
@@ -228,7 +255,6 @@ async function main() {
   switch (command) {
     case "keygen": {
       const { execSync } = await import("node:child_process");
-      const { readFileSync } = await import("node:fs");
 
       const name = getFlag("name") || "default-agent";
       const scope = (getFlag("scope") || "publish") as "publish" | "draft-only" | "read-only" | "admin";
@@ -239,19 +265,9 @@ async function main() {
       const keyHash = await hashApiKey(apiKey);
       const remoteFlag = remote ? " --remote" : "";
 
-      // Read AGENTCMS_PREFIX from wrangler.toml if present
-      let kvPrefix = "";
-      try {
-        const wranglerToml = readFileSync("wrangler.toml", "utf-8");
-        const prefixMatch = wranglerToml.match(/AGENTCMS_PREFIX\s*=\s*"([^"]+)"/);
-        if (prefixMatch) {
-          kvPrefix = prefixMatch[1] + ":";
-        }
-      } catch {
-        // No wrangler.toml found, no prefix
-      }
-
-      const kvKey = `${kvPrefix}agents:${keyHash}`;
+      // Isolate the agent key under this site's prefix when sharing a KV namespace.
+      const prefix = resolveCliPrefix();
+      const kvKey = prefix ? kvKeys(prefix).agent(keyHash) : KEYS.agent(keyHash);
 
       const keyRecord = JSON.stringify({
         name,
@@ -267,8 +283,8 @@ async function main() {
       console.log(`  Name:   ${name}`);
       console.log(`  Scope:  ${scope}`);
       console.log(`  Target: ${remote ? "remote (production)" : "local (dev)"}`);
-      if (kvPrefix) {
-        console.log(`  Prefix: ${kvPrefix.slice(0, -1)}`);
+      if (prefix) {
+        console.log(`  Prefix: ${prefix}`);
       }
       console.log("");
 
@@ -315,9 +331,12 @@ async function main() {
     }
 
     case "seed": {
+      const prefix = resolveCliPrefix();
+      const keys = prefix ? kvKeys(prefix) : KEYS;
       console.log("");
       console.log("  🌱 AgentCMS Seed");
       console.log("  ────────────────");
+      if (prefix) console.log(`  Prefix: ${prefix}`);
       console.log("  Run these commands to add sample posts:");
       console.log("");
 
@@ -356,7 +375,7 @@ async function main() {
           metadata: {},
         };
 
-        console.log(`  npx wrangler kv key put --binding=AGENTCMS_KV "posts:${slug}" '${JSON.stringify(full)}'`);
+        console.log(`  npx wrangler kv key put --binding=AGENTCMS_KV "${keys.post(slug)}" '${JSON.stringify(full)}'`);
         console.log("");
       }
 
@@ -372,7 +391,7 @@ async function main() {
         authorType: "human",
       }));
 
-      console.log(`  npx wrangler kv key put --binding=AGENTCMS_KV "posts:index" '${JSON.stringify({
+      console.log(`  npx wrangler kv key put --binding=AGENTCMS_KV "${keys.index}" '${JSON.stringify({
         posts: indexEntries,
         totalCount: indexEntries.length,
         lastUpdated: new Date().toISOString(),
