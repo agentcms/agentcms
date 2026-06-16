@@ -35,13 +35,14 @@ export const POST: APIRoute = async ({ request }) => {
   const r2Binding = globalThis.__AGENTCMS_CONFIG__?.r2Binding || "AGENTCMS_R2";
   const kv = (env as Record<string, unknown>)[kvBinding] as KVNamespace;
   const r2 = (env as Record<string, unknown>)[r2Binding] as R2Bucket | undefined;
+  const prefix = globalThis.__AGENTCMS_CONFIG__?.kvPrefix;
 
   if (!r2) {
     return json({ error: "Image storage not configured (missing R2 binding)" }, 500);
   }
 
   // --- Auth ---
-  const agent = await validateApiKey(kv, request.headers.get("Authorization"));
+  const agent = await validateApiKey(kv, request.headers.get("Authorization"), prefix);
   if (!agent) {
     return json({ error: "Invalid or missing API key" }, 401);
   }
@@ -54,7 +55,8 @@ export const POST: APIRoute = async ({ request }) => {
   const { allowed, remaining } = await checkRateLimit(
     kv,
     agent.keyHash,
-    agent.rateLimit
+    agent.rateLimit,
+    prefix
   );
   if (!allowed) {
     return json({ error: "Rate limit exceeded" }, 429);

@@ -16,15 +16,16 @@ function json(data: unknown, status = 200): Response {
 export const GET: APIRoute = async ({ request }) => {
   const bindingName = globalThis.__AGENTCMS_CONFIG__?.kvBinding || "AGENTCMS_KV";
   const kv = (env as Record<string, unknown>)[bindingName] as KVNamespace;
+  const prefix = globalThis.__AGENTCMS_CONFIG__?.kvPrefix;
 
-  const agent = await validateApiKey(kv, request.headers.get("Authorization"));
+  const agent = await validateApiKey(kv, request.headers.get("Authorization"), prefix);
   if (!agent) return json({ error: "Invalid or missing API key" }, 401);
 
   // KV config takes precedence; inline site config from agentcms.config.ts is fallback
-  const kvConfig = await getConfig(kv);
+  const kvConfig = await getConfig(kv, prefix);
   const inlineSite = globalThis.__AGENTCMS_CONFIG__?.site;
   const config = kvConfig || inlineSite || null;
-  const index = await getIndex(kv);
+  const index = await getIndex(kv, prefix);
   const recentPosts = index.posts.slice(0, 15);
 
   const allTags = [...new Set(recentPosts.flatMap((p) => p.tags))];

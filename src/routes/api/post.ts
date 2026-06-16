@@ -43,6 +43,10 @@ function getKV(): KVNamespace {
   return (env as Record<string, unknown>)[bindingName] as KVNamespace;
 }
 
+function getPrefix(): string | undefined {
+  return globalThis.__AGENTCMS_CONFIG__?.kvPrefix;
+}
+
 // --- GET ---
 
 export const GET: APIRoute = async ({ params, request }) => {
@@ -50,10 +54,11 @@ export const GET: APIRoute = async ({ params, request }) => {
     return json({ error: "Invalid slug" }, 400);
   }
   const kv = getKV();
-  const agent = await validateApiKey(kv, request.headers.get("Authorization"));
+  const prefix = getPrefix();
+  const agent = await validateApiKey(kv, request.headers.get("Authorization"), prefix);
   if (!agent) return json({ error: "Invalid or missing API key" }, 401);
 
-  const post = await getPost(kv, params.slug);
+  const post = await getPost(kv, params.slug, prefix);
   if (!post) return json({ error: "Post not found" }, 404);
 
   return json(post);
@@ -66,7 +71,8 @@ export const PUT: APIRoute = async ({ params, request }) => {
     return json({ error: "Invalid slug" }, 400);
   }
   const kv = getKV();
-  const agent = await validateApiKey(kv, request.headers.get("Authorization"));
+  const prefix = getPrefix();
+  const agent = await validateApiKey(kv, request.headers.get("Authorization"), prefix);
   if (!agent) return json({ error: "Invalid or missing API key" }, 401);
 
   if (agent.scope === "read-only") {
@@ -77,13 +83,14 @@ export const PUT: APIRoute = async ({ params, request }) => {
   const { allowed, remaining } = await checkRateLimit(
     kv,
     agent.keyHash,
-    agent.rateLimit
+    agent.rateLimit,
+    prefix
   );
   if (!allowed) {
     return json({ error: "Rate limit exceeded" }, 429);
   }
 
-  const existing = await getPost(kv, params.slug);
+  const existing = await getPost(kv, params.slug, prefix);
   if (!existing) return json({ error: "Post not found" }, 404);
 
   // --- Parse & validate ---
@@ -136,13 +143,13 @@ export const PUT: APIRoute = async ({ params, request }) => {
     updated.publishedAt = now;
   }
 
-  await putPost(kv, updated);
-  await updateIndex(kv, updated);
+  await putPost(kv, updated, prefix);
+  await updateIndex(kv, updated, "upsert", prefix);
 
   const siteUrl = new URL(request.url).origin;
 
   // Webhook — fire and forget
-  sendWebhook(kv, "post.updated", updated, siteUrl).catch(() => {});
+  sendWebhook(kv, "post.updated", updated, siteUrl, prefix).catch(() => {});
 
   return json({
     success: true,
@@ -159,7 +166,8 @@ export const DELETE: APIRoute = async ({ params, request }) => {
     return json({ error: "Invalid slug" }, 400);
   }
   const kv = getKV();
-  const agent = await validateApiKey(kv, request.headers.get("Authorization"));
+  const prefix = getPrefix();
+  const agent = await validateApiKey(kv, request.headers.get("Authorization"), prefix);
   if (!agent) return json({ error: "Invalid or missing API key" }, 401);
 
   if (agent.scope !== "admin" && agent.scope !== "publish") {
@@ -170,22 +178,23 @@ export const DELETE: APIRoute = async ({ params, request }) => {
   const { allowed, remaining } = await checkRateLimit(
     kv,
     agent.keyHash,
-    agent.rateLimit
+    agent.rateLimit,
+    prefix
   );
   if (!allowed) {
     return json({ error: "Rate limit exceeded" }, 429);
   }
 
-  const existing = await getPost(kv, params.slug);
+  const existing = await getPost(kv, params.slug, prefix);
   if (!existing) return json({ error: "Post not found" }, 404);
 
-  await deletePost(kv, params.slug);
-  await updateIndex(kv, existing, "remove");
+  await deletePost(kv, params.slug, prefix);
+  await updateIndex(kv, existing, "remove", prefix);
 
   const siteUrl = new URL(request.url).origin;
 
   // Webhook — fire and forget
-  sendWebhook(kv, "post.deleted", existing, siteUrl).catch(() => {});
+  sendWebhook(kv, "post.deleted", existing, siteUrl, prefix).catch(() => {});
 
   return json({
     success: true,

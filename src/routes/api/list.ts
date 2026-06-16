@@ -16,9 +16,10 @@ function json(data: unknown, status = 200): Response {
 export const GET: APIRoute = async ({ request }) => {
   const bindingName = globalThis.__AGENTCMS_CONFIG__?.kvBinding || "AGENTCMS_KV";
   const kv = (env as Record<string, unknown>)[bindingName] as KVNamespace;
+  const prefix = globalThis.__AGENTCMS_CONFIG__?.kvPrefix;
 
   // --- Auth ---
-  const agent = await validateApiKey(kv, request.headers.get("Authorization"));
+  const agent = await validateApiKey(kv, request.headers.get("Authorization"), prefix);
   if (!agent) {
     return json({ error: "Invalid or missing API key" }, 401);
   }
@@ -33,7 +34,7 @@ export const GET: APIRoute = async ({ request }) => {
   const category = url.searchParams.get("category") || undefined;
 
   // --- Get index ---
-  const index = await getIndex(kv);
+  const index = await getIndex(kv, prefix);
   let posts = index.posts;
 
   if (tag) {

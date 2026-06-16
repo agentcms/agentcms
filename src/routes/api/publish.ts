@@ -38,9 +38,10 @@ function json(data: unknown, status = 200): Response {
 export const POST: APIRoute = async ({ request }) => {
   const bindingName = globalThis.__AGENTCMS_CONFIG__?.kvBinding || "AGENTCMS_KV";
   const kv = (env as Record<string, unknown>)[bindingName] as KVNamespace;
+  const prefix = globalThis.__AGENTCMS_CONFIG__?.kvPrefix;
 
   // --- Auth ---
-  const agent = await validateApiKey(kv, request.headers.get("Authorization"));
+  const agent = await validateApiKey(kv, request.headers.get("Authorization"), prefix);
   if (!agent) {
     return json({ error: "Invalid or missing API key" }, 401);
   }
@@ -53,7 +54,8 @@ export const POST: APIRoute = async ({ request }) => {
   const { allowed, remaining } = await checkRateLimit(
     kv,
     agent.keyHash,
-    agent.rateLimit
+    agent.rateLimit,
+    prefix
   );
   if (!allowed) {
     return json({ error: "Rate limit exceeded" }, 429);
@@ -80,7 +82,7 @@ export const POST: APIRoute = async ({ request }) => {
   const now = new Date().toISOString();
 
   // --- Check slug collision ---
-  const existing = await getPost(kv, slug);
+  const existing = await getPost(kv, slug, prefix);
   if (existing) {
     return json({ error: "Slug already exists", slug }, 409);
   }
@@ -116,17 +118,17 @@ export const POST: APIRoute = async ({ request }) => {
   };
 
   // --- Write ---
-  await putPost(kv, post);
+  await putPost(kv, post, prefix);
 
   if (effectiveStatus === "published") {
-    await updateIndex(kv, post);
+    await updateIndex(kv, post, "upsert", prefix);
   }
 
   const siteUrl = new URL(request.url).origin;
   const basePath = globalThis.__AGENTCMS_CONFIG__?.basePath || "/blog";
 
   // Webhook — fire and forget
-  sendWebhook(kv, "post.published", post, siteUrl).catch(() => {});
+  sendWebhook(kv, "post.published", post, siteUrl, prefix).catch(() => {});
 
   return json(
     {
