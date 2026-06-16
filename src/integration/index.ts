@@ -13,6 +13,41 @@
 import type { AstroIntegration } from "astro";
 import type { AgentCMSOptions } from "../types.js";
 
+/**
+ * Resolve the KV key prefix used to isolate this site's data when several sites
+ * share one KV namespace. Resolution order:
+ *   1. explicit `kvPrefix` integration option
+ *   2. `AGENTCMS_PREFIX` environment variable (e.g. CI)
+ *   3. `AGENTCMS_PREFIX` declared in the project's wrangler config
+ *      (wrangler.toml / wrangler.jsonc / wrangler.json)
+ *
+ * Returns the RAW prefix (no trailing colon) — the KV helpers append the colon.
+ * This is what makes the headless data helpers (getAgentCMSPosts, etc.) read
+ * `<prefix>:posts:*` instead of the shared, un-prefixed `posts:*` keys.
+ */
+export async function resolveKvPrefix(
+  explicit?: string
+): Promise<string | undefined> {
+  if (explicit) return explicit;
+  if (process.env.AGENTCMS_PREFIX) return process.env.AGENTCMS_PREFIX;
+  try {
+    const { readFileSync } = await import("node:fs");
+    for (const file of ["wrangler.toml", "wrangler.jsonc", "wrangler.json"]) {
+      try {
+        const text = readFileSync(file, "utf-8");
+        // Matches TOML  AGENTCMS_PREFIX = "x"  and JSON  "AGENTCMS_PREFIX": "x"
+        const match = text.match(/AGENTCMS_PREFIX"?\s*[:=]\s*"([^"]+)"/);
+        if (match) return match[1];
+      } catch {
+        // file not present — try the next candidate
+      }
+    }
+  } catch {
+    // node:fs unavailable (non-Node builder) — no auto-detection
+  }
+  return undefined;
+}
+
 export default function agentcms(
   options: AgentCMSOptions = {}
 ): AstroIntegration {
@@ -27,6 +62,7 @@ export default function agentcms(
     theme = "default",
     kvBinding = "AGENTCMS_KV",
     r2Binding = "AGENTCMS_R2",
+    kvPrefix: kvPrefixOption,
     site,
   } = options;
 
@@ -36,13 +72,16 @@ export default function agentcms(
   return {
     name: "agentcms",
     hooks: {
-      "astro:config:setup": ({
+      "astro:config:setup": async ({
         injectRoute,
         injectScript,
         updateConfig,
         logger,
       }) => {
         logger.info(`AgentCMS initializing in "${mode}" mode`);
+
+        // Resolve the KV prefix that isolates this site's data in a shared namespace.
+        const kvPrefix = await resolveKvPrefix(kvPrefixOption);
 
         // ---------------------------------------------------------------
         // Always inject: Agent write API
@@ -148,11 +187,13 @@ export default function agentcms(
             postsPerPage,
             kvBinding,
             r2Binding,
+            ...(kvPrefix ? { kvPrefix } : {}),
             ...(additionalSitemaps ? { additionalSitemaps } : {}),
             ...(site ? { site } : {}),
           })};`
         );
 
+        if (kvPrefix) logger.info(`AgentCMS KV prefix: "${kvPrefix}"`);
         logger.info("AgentCMS ready ✓");
       },
 
