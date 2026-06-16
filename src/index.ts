@@ -94,13 +94,30 @@ async function getKV(): Promise<KVNamespace> {
 }
 
 /**
+ * Resolve the KV prefix. Prefer the `AGENTCMS_PREFIX` env binding (reliably available in BOTH
+ * page and endpoint/API contexts) and fall back to the integration-injected global (only set
+ * for .astro pages via injectScript('page-ssr'), NOT for .ts endpoints). This keeps feed.xml,
+ * sitemap and any endpoint that calls these helpers correctly namespaced.
+ */
+async function getKvPrefix(): Promise<string | undefined> {
+  try {
+    const { env } = await import("cloudflare:workers");
+    const p = (env as Record<string, unknown>).AGENTCMS_PREFIX;
+    if (typeof p === "string" && p) return p;
+  } catch {
+    // env unavailable outside workerd
+  }
+  return globalThis.__AGENTCMS_CONFIG__?.kvPrefix;
+}
+
+/**
  * Get paginated, filterable posts
  */
 export async function getAgentCMSPosts(
   options: GetPostsOptions = {}
 ): Promise<GetPostsResult> {
   const kv = await getKV();
-  return queryPosts(kv, options, globalThis.__AGENTCMS_CONFIG__?.kvPrefix);
+  return queryPosts(kv, options, await getKvPrefix());
 }
 
 /**
@@ -110,7 +127,7 @@ export async function getAgentCMSPost(
   slug: string
 ): Promise<AgentCMSPost | null> {
   const kv = await getKV();
-  return getPost(kv, slug, globalThis.__AGENTCMS_CONFIG__?.kvPrefix);
+  return getPost(kv, slug, await getKvPrefix());
 }
 
 /**
@@ -120,7 +137,7 @@ export async function getAgentCMSTags(): Promise<
   Array<{ tag: string; count: number }>
 > {
   const kv = await getKV();
-  return queryTags(kv, globalThis.__AGENTCMS_CONFIG__?.kvPrefix);
+  return queryTags(kv, await getKvPrefix());
 }
 
 /**
@@ -130,7 +147,7 @@ export async function getAgentCMSCategories(): Promise<
   Array<{ category: string; count: number }>
 > {
   const kv = await getKV();
-  return queryCategories(kv, globalThis.__AGENTCMS_CONFIG__?.kvPrefix);
+  return queryCategories(kv, await getKvPrefix());
 }
 
 /**
@@ -138,7 +155,7 @@ export async function getAgentCMSCategories(): Promise<
  */
 export async function getAgentCMSConfig(): Promise<AgentCMSSiteConfig | null> {
   const kv = await getKV();
-  return queryConfig(kv, globalThis.__AGENTCMS_CONFIG__?.kvPrefix);
+  return queryConfig(kv, await getKvPrefix());
 }
 
 // --- Global config type (set by integration via injectScript) ---

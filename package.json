@@ -1,6 +1,6 @@
 {
   "name": "@agentcms/agentcms",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "description": "AI-agent-first headless CMS for Astro 6 + Cloudflare",
   "type": "module",
   "license": "MIT",

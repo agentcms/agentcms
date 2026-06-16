@@ -35,7 +35,9 @@ export const POST: APIRoute = async ({ request }) => {
   const r2Binding = globalThis.__AGENTCMS_CONFIG__?.r2Binding || "AGENTCMS_R2";
   const kv = (env as Record<string, unknown>)[kvBinding] as KVNamespace;
   const r2 = (env as Record<string, unknown>)[r2Binding] as R2Bucket | undefined;
-  const prefix = globalThis.__AGENTCMS_CONFIG__?.kvPrefix;
+  const prefix =
+    ((env as Record<string, unknown>).AGENTCMS_PREFIX as string | undefined) ??
+    globalThis.__AGENTCMS_CONFIG__?.kvPrefix;
 
   if (!r2) {
     return json({ error: "Image storage not configured (missing R2 binding)" }, 500);

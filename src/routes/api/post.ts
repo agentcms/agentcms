@@ -44,7 +44,12 @@ function getKV(): KVNamespace {
 }
 
 function getPrefix(): string | undefined {
-  return globalThis.__AGENTCMS_CONFIG__?.kvPrefix;
+  // API endpoints don't get the integration's page-ssr global, so prefer the env var
+  // (set via wrangler [vars] AGENTCMS_PREFIX); fall back to the global for the option-only case.
+  return (
+    ((env as Record<string, unknown>).AGENTCMS_PREFIX as string | undefined) ??
+    globalThis.__AGENTCMS_CONFIG__?.kvPrefix
+  );
 }
 
 // --- GET ---

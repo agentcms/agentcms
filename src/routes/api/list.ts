@@ -16,7 +16,9 @@ function json(data: unknown, status = 200): Response {
 export const GET: APIRoute = async ({ request }) => {
   const bindingName = globalThis.__AGENTCMS_CONFIG__?.kvBinding || "AGENTCMS_KV";
   const kv = (env as Record<string, unknown>)[bindingName] as KVNamespace;
-  const prefix = globalThis.__AGENTCMS_CONFIG__?.kvPrefix;
+  const prefix =
+    ((env as Record<string, unknown>).AGENTCMS_PREFIX as string | undefined) ??
+    globalThis.__AGENTCMS_CONFIG__?.kvPrefix;
 
   // --- Auth ---
   const agent = await validateApiKey(kv, request.headers.get("Authorization"), prefix);

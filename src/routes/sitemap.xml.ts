@@ -10,7 +10,9 @@ export const GET: APIRoute = async ({ request }) => {
   const { env } = await import("cloudflare:workers");
   const bindingName = globalThis.__AGENTCMS_CONFIG__?.kvBinding || "AGENTCMS_KV";
   const kv = (env as Record<string, unknown>)[bindingName] as KVNamespace;
-  const prefix = globalThis.__AGENTCMS_CONFIG__?.kvPrefix;
+  const prefix =
+    ((env as Record<string, unknown>).AGENTCMS_PREFIX as string | undefined) ??
+    globalThis.__AGENTCMS_CONFIG__?.kvPrefix;
   const basePath = globalThis.__AGENTCMS_CONFIG__?.basePath || "/blog";
   const siteUrl = new URL(request.url).origin;
 
