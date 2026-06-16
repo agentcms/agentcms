@@ -176,9 +176,15 @@ export default function agentcms(
         // ---------------------------------------------------------------
         // Inject virtual module with config (available to routes/components)
         // ---------------------------------------------------------------
-        // TODO: Use Astro's virtual module API to expose config
-        // import.meta.env.AGENTCMS_BASE_PATH, etc.
-        // For now, config is passed via a global that routes can read.
+        // ⚠️ IMPORTANT — `page-ssr` runs ONLY for .astro PAGES, NOT for `.ts` API
+        // endpoints (src/routes/api/*, sitemap.xml.ts, feed.xml.ts, etc.). So
+        // `globalThis.__AGENTCMS_CONFIG__` (and therefore `.kvPrefix`) is UNDEFINED inside
+        // endpoint handlers. Do NOT read the KV prefix from this global in an endpoint —
+        // it silently falls back to the shared, un-prefixed keys and serves another site's
+        // data on a shared KV namespace. In endpoints, read the prefix from the
+        // `AGENTCMS_PREFIX` env binding instead (see src/routes/api/* and the getKvPrefix
+        // helper in src/index.ts). This footgun caused the 0.8.1–0.8.3 prefix regressions.
+        // TODO: expose config via Astro's virtual module API so endpoints can import it too.
         injectScript(
           "page-ssr",
           `globalThis.__AGENTCMS_CONFIG__ = ${JSON.stringify({

@@ -255,6 +255,9 @@ async function main() {
   switch (command) {
     case "keygen": {
       const { execSync } = await import("node:child_process");
+      const { writeFileSync, rmSync } = await import("node:fs");
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
 
       const name = getFlag("name") || "default-agent";
       const scope = (getFlag("scope") || "publish") as "publish" | "draft-only" | "read-only" | "admin";
@@ -288,10 +291,16 @@ async function main() {
       }
       console.log("");
 
-      // Write key record directly to KV via wrangler
+      // Write key record to KV via wrangler. Pass the JSON through a temp file (--path)
+      // rather than an inline quoted arg: on Windows the shell is cmd.exe, which strips the
+      // double quotes inside the JSON and does NOT treat single quotes as delimiters, so an
+      // inline `'${keyRecord}'` gets stored as corrupted, unparseable JSON → every API call
+      // then 500s on JSON.parse. --path is shell-safe on every platform.
+      const recordFile = join(tmpdir(), `agentcms-key-${keyHash}.json`);
       try {
+        writeFileSync(recordFile, keyRecord);
         execSync(
-          `npx wrangler kv key put --binding=AGENTCMS_KV${remoteFlag} "${kvKey}" '${keyRecord}'`,
+          `npx wrangler kv key put --binding=AGENTCMS_KV${remoteFlag} "${kvKey}" --path "${recordFile}"`,
           { stdio: "pipe" }
         );
         console.log("  ✅ Key registered in KV");
@@ -299,10 +308,13 @@ async function main() {
         console.error("  ❌ Failed to register key in KV.");
         console.error("     Make sure wrangler is logged in and wrangler.toml has AGENTCMS_KV binding.");
         console.error("");
-        console.error("  You can register manually:");
-        console.error(`  npx wrangler kv key put --binding=AGENTCMS_KV${remoteFlag} "${kvKey}" '${keyRecord}'`);
+        console.error("  You can register manually (write the record to key.json first):");
+        console.error(`  npx wrangler kv key put --binding=AGENTCMS_KV${remoteFlag} "${kvKey}" --path key.json`);
+        console.error(`  record: ${keyRecord}`);
         console.error("");
         process.exit(1);
+      } finally {
+        try { rmSync(recordFile, { force: true }); } catch { /* ignore */ }
       }
 
       console.log("");
