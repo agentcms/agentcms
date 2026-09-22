@@ -34,24 +34,64 @@ export const KEYS = kvKeys();
 
 // --- Post Operations ---
 
+/**
+ * Read a post. Drafts live under their own key and are not returned unless
+ * `includeDrafts` is set — that is for authenticated agent routes, never for
+ * public render paths. Agent routes that edit a post must pass it, or a
+ * draft-only agent can never read or revise its own draft.
+ */
 export async function getPost(
   kv: KVNamespace,
   slug: string,
-  prefix?: string
+  prefix?: string,
+  options: { includeDrafts?: boolean } = {}
 ): Promise<AgentCMSPost | null> {
   const keys = prefix ? kvKeys(prefix) : KEYS;
-  return kv.get(keys.post(slug), "json");
+  const post = await kv.get<AgentCMSPost>(keys.post(slug), "json");
+  if (post || !options.includeDrafts) return post;
+  return kv.get<AgentCMSPost>(keys.draft(slug), "json");
 }
 
+/**
+ * Write a post under exactly one key — the draft key for drafts, the post key
+ * otherwise — and delete the other. Writing only one used to leave a demoted
+ * post's published copy live at its URL, and a promoted draft's stale draft
+ * behind.
+ */
 export async function putPost(
   kv: KVNamespace,
   post: AgentCMSPost,
   prefix?: string
 ): Promise<void> {
   const keys = prefix ? kvKeys(prefix) : KEYS;
-  const key =
-    post.status === "draft" ? keys.draft(post.slug) : keys.post(post.slug);
-  await kv.put(key, JSON.stringify(post));
+  const isDraft = post.status === "draft";
+  await kv.put(
+    isDraft ? keys.draft(post.slug) : keys.post(post.slug),
+    JSON.stringify(post)
+  );
+  await kv.delete(isDraft ? keys.post(post.slug) : keys.draft(post.slug));
+}
+
+/** All drafts, newest update first. Not exposed over HTTP. */
+export async function listDrafts(
+  kv: KVNamespace,
+  prefix?: string
+): Promise<AgentCMSPost[]> {
+  const keys = prefix ? kvKeys(prefix) : KEYS;
+  const draftPrefix = keys.draft("");
+  const names: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await kv.list({ prefix: draftPrefix, cursor });
+    names.push(...page.keys.map((k) => k.name));
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  const drafts = await Promise.all(
+    names.map((name) => kv.get<AgentCMSPost>(name, "json"))
+  );
+  return drafts
+    .filter((d): d is AgentCMSPost => d !== null)
+    .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
 }
 
 export async function deletePost(

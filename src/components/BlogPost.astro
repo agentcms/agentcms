@@ -2,9 +2,11 @@
 /**
  * AgentCMS — BlogPost
  * Full article template for a single blog post.
- * Markdown is parsed with marked and sanitized to prevent XSS from raw HTML in content.
+ * The body goes through the package's sanitizer (utils/sanitize.ts): a stored
+ * contentHtml is sanitized, otherwise the markdown is rendered and sanitized.
+ * Post content is agent-written, so it is never inserted unsanitized.
  */
-import { marked } from "marked";
+import { renderPostHtml } from "../utils/sanitize.js";
 
 interface Props {
   post: {
@@ -38,8 +40,7 @@ const {
   class: className,
 } = Astro.props;
 
-const rawHtml = post.contentHtml || await marked.parse(post.content);
-const htmlContent = typeof rawHtml === "string" ? rawHtml : "";
+const htmlContent = await renderPostHtml(post);
 const publishDate = new Date(post.publishedAt).toLocaleDateString("en-US", {
   year: "numeric",
   month: "long",

@@ -11,7 +11,7 @@ import type { AgentCMSPost, SitemapOptions, RobotsTxtOptions } from "../types.js
 import { getPost, getIndex } from "../utils/kv.js";
 import { queryPosts, queryTags, queryCategories } from "../utils/query.js";
 import { generateSitemapXml, generateRobotsTxt } from "../utils/sitemap.js";
-import { Marked } from "marked";
+import { toSafePost, toSafeListPost } from "../utils/sanitize.js";
 
 export interface AgentCMSEnv {
   AGENTCMS_KV: KVNamespace;
@@ -19,8 +19,6 @@ export interface AgentCMSEnv {
   /** Optional KV key prefix to isolate data when sharing a namespace. */
   AGENTCMS_PREFIX?: string;
 }
-
-const marked = new Marked();
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -62,13 +60,14 @@ export async function handleListPosts(
     authorType,
   }, env.AGENTCMS_PREFIX);
 
-  return json(result);
+  return json({ ...result, posts: result.posts.map(toSafeListPost) });
 }
 
 /**
  * GET /api/posts/:slug — Get a single published post by slug.
  *
- * Renders markdown to HTML if contentHtml is not already set.
+ * `contentHtml` is always present and sanitized; `content` is the raw
+ * agent-written markdown and must not be inserted as HTML.
  */
 export async function handleGetPost(
   request: Request,
@@ -83,12 +82,7 @@ export async function handleGetPost(
     return json({ error: "Post not found" }, 404);
   }
 
-  // Ensure contentHtml is present
-  if (!post.contentHtml && post.content) {
-    (post as AgentCMSPost).contentHtml = await marked.parse(post.content);
-  }
-
-  return json(post);
+  return json(await toSafePost(post));
 }
 
 /**

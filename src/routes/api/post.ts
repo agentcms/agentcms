@@ -7,6 +7,7 @@ import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { validateApiKey, checkRateLimit, getPost, putPost, deletePost, updateIndex } from "../../utils/kv.js";
 import { sendWebhook } from "../../utils/webhook.js";
+import { toSafePost } from "../../utils/sanitize.js";
 import { calculateReadingTime, generateDescription } from "../../utils/content.js";
 import type { AgentCMSPost } from "../../types.js";
 
@@ -63,10 +64,10 @@ export const GET: APIRoute = async ({ params, request }) => {
   const agent = await validateApiKey(kv, request.headers.get("Authorization"), prefix);
   if (!agent) return json({ error: "Invalid or missing API key" }, 401);
 
-  const post = await getPost(kv, params.slug, prefix);
+  const post = await getPost(kv, params.slug, prefix, { includeDrafts: true });
   if (!post) return json({ error: "Post not found" }, 404);
 
-  return json(post);
+  return json(await toSafePost(post));
 };
 
 // --- PUT ---
@@ -95,7 +96,7 @@ export const PUT: APIRoute = async ({ params, request }) => {
     return json({ error: "Rate limit exceeded" }, 429);
   }
 
-  const existing = await getPost(kv, params.slug, prefix);
+  const existing = await getPost(kv, params.slug, prefix, { includeDrafts: true });
   if (!existing) return json({ error: "Post not found" }, 404);
 
   // --- Parse & validate ---
@@ -117,7 +118,13 @@ export const PUT: APIRoute = async ({ params, request }) => {
   const data = parsed.data;
 
   // --- Enforce draft-only scope ---
+  // A post lives under one key, so writing a published post back as a draft
+  // unpublishes it. That needs publish scope, as DELETE does; a draft-only
+  // key may only revise drafts.
   if (agent.scope === "draft-only") {
+    if (existing.status !== "draft") {
+      return json({ error: "draft-only keys can only edit drafts" }, 403);
+    }
     data.status = "draft";
   }
 
@@ -190,7 +197,7 @@ export const DELETE: APIRoute = async ({ params, request }) => {
     return json({ error: "Rate limit exceeded" }, 429);
   }
 
-  const existing = await getPost(kv, params.slug, prefix);
+  const existing = await getPost(kv, params.slug, prefix, { includeDrafts: true });
   if (!existing) return json({ error: "Post not found" }, 404);
 
   await deletePost(kv, params.slug, prefix);

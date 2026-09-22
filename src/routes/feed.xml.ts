@@ -3,10 +3,13 @@
 // ============================================================================
 
 import type { APIRoute } from "astro";
-import { getAgentCMSPosts, getAgentCMSConfig } from "@agentcms/agentcms";
+import { getAgentCMSPosts, getAgentCMSConfig, stripHtml } from "@agentcms/agentcms";
 
+// Titles and descriptions are agent-written. They used to sit in CDATA, which
+// is not an escape: a title containing "]]>" closes the section and injects
+// arbitrary XML into the feed. Escaping is.
 function escapeXml(s: string): string {
-  return s
+  return String(s ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -27,10 +30,10 @@ export const GET: APIRoute = async ({ request }) => {
     .map(
       (post) => `
     <item>
-      <title><![CDATA[${post.title}]]></title>
+      <title>${escapeXml(post.title)}</title>
       <link>${siteUrl}${basePath}/${encodeURIComponent(post.slug)}</link>
       <guid isPermaLink="true">${siteUrl}${basePath}/${encodeURIComponent(post.slug)}</guid>
-      <description><![CDATA[${post.description}]]></description>
+      <description>${escapeXml(stripHtml(post.description))}</description>
       <pubDate>${new Date(post.publishedAt).toUTCString()}</pubDate>
       <author>${escapeXml(post.author)}</author>
       ${post.tags.map((t) => `<category>${escapeXml(t)}</category>`).join("\n      ")}
@@ -41,8 +44,8 @@ export const GET: APIRoute = async ({ request }) => {
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>${siteName}</title>
-    <description>${siteDescription}</description>
+    <title>${escapeXml(siteName)}</title>
+    <description>${escapeXml(siteDescription)}</description>
     <link>${siteUrl}${basePath}</link>
     <atom:link href="${siteUrl}/feed.xml" rel="self" type="application/rss+xml" />
     <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>

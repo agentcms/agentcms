@@ -84,7 +84,7 @@ export const POST: APIRoute = async ({ request }) => {
   const now = new Date().toISOString();
 
   // --- Check slug collision ---
-  const existing = await getPost(kv, slug, prefix);
+  const existing = await getPost(kv, slug, prefix, { includeDrafts: true });
   if (existing) {
     return json({ error: "Slug already exists", slug }, 409);
   }

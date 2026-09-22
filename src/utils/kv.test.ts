@@ -4,6 +4,7 @@ import {
   getPost,
   putPost,
   deletePost,
+  listDrafts,
   getIndex,
   updateIndex,
   getConfig,
@@ -31,7 +32,10 @@ function createMockKV(): KVNamespace {
     delete: vi.fn(async (key: string) => {
       store.delete(key);
     }),
-    list: vi.fn(),
+    list: vi.fn(async ({ prefix = "" }: { prefix?: string } = {}) => ({
+      keys: [...store.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })),
+      list_complete: true,
+    })),
     getWithMetadata: vi.fn(),
   } as unknown as KVNamespace;
 }
@@ -143,6 +147,60 @@ describe("deletePost", () => {
 // ============================================================================
 // Index Operations
 // ============================================================================
+
+describe("draft lifecycle — a post lives under exactly one key", () => {
+  let kv: KVNamespace;
+  beforeEach(() => {
+    kv = createMockKV();
+  });
+
+  it("demoting a published post takes it down (regression)", async () => {
+    await putPost(kv, makePost());
+    await putPost(kv, makePost({ status: "draft" }));
+    // The public read must not serve the old published copy any more.
+    expect(await getPost(kv, "test-post")).toBeNull();
+    expect(await kv.get(KEYS.post("test-post"))).toBeNull();
+    expect(await getPost(kv, "test-post", undefined, { includeDrafts: true })).toMatchObject({
+      status: "draft",
+    });
+  });
+
+  it("publishing a draft removes the draft key", async () => {
+    await putPost(kv, makePost({ status: "draft" }));
+    await putPost(kv, makePost());
+    expect(await kv.get(KEYS.draft("test-post"))).toBeNull();
+    expect(await getPost(kv, "test-post")).toMatchObject({ status: "published" });
+  });
+
+  it("public reads never return a draft", async () => {
+    await putPost(kv, makePost({ slug: "d", status: "draft" }));
+    expect(await getPost(kv, "d")).toBeNull();
+    expect(await getPost(kv, "d", undefined, { includeDrafts: true })).toMatchObject({ slug: "d" });
+  });
+
+  it("draft edits accumulate instead of re-reading a frozen copy", async () => {
+    await putPost(kv, makePost({ status: "draft", title: "One" }));
+    const first = await getPost(kv, "test-post", undefined, { includeDrafts: true });
+    await putPost(kv, { ...first!, title: "Two" });
+    expect(await getPost(kv, "test-post", undefined, { includeDrafts: true })).toMatchObject({
+      title: "Two",
+    });
+  });
+
+  it("honours the KV prefix", async () => {
+    await putPost(kv, makePost(), "site");
+    await putPost(kv, makePost({ status: "draft" }), "site");
+    expect(await getPost(kv, "test-post", "site")).toBeNull();
+    expect(await kv.get("site:posts:draft:test-post")).not.toBeNull();
+  });
+
+  it("listDrafts returns drafts only, newest first", async () => {
+    await putPost(kv, makePost({ slug: "a", status: "draft", updatedAt: "2025-01-01T00:00:00Z" }));
+    await putPost(kv, makePost({ slug: "b", status: "draft", updatedAt: "2025-02-01T00:00:00Z" }));
+    await putPost(kv, makePost({ slug: "c" }));
+    expect((await listDrafts(kv)).map((d) => d.slug)).toEqual(["b", "a"]);
+  });
+});
 
 describe("getIndex", () => {
   it("returns empty index when KV has no index", async () => {

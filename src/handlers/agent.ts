@@ -25,6 +25,7 @@ import {
   generateDescription,
 } from "../utils/content.js";
 import { sendWebhook } from "../utils/webhook.js";
+import { toSafePost } from "../utils/sanitize.js";
 import type { AgentCMSEnv } from "./public.js";
 
 // --- Schemas ---
@@ -145,7 +146,7 @@ export async function handlePublish(
   const now = new Date().toISOString();
 
   // Check slug collision
-  const existing = await getPost(kv, slug, pfx);
+  const existing = await getPost(kv, slug, pfx, { includeDrafts: true });
   if (existing) return json({ error: "Slug already exists", slug }, 409);
 
   // Determine effective status
@@ -249,10 +250,10 @@ export async function handleAgentGetPost(
   const agent = await validateApiKey(kv, request.headers.get("Authorization"), pfx);
   if (!agent) return json({ error: "Invalid or missing API key" }, 401);
 
-  const post = await getPost(kv, slug, pfx);
+  const post = await getPost(kv, slug, pfx, { includeDrafts: true });
   if (!post) return json({ error: "Post not found" }, 404);
 
-  return json(post);
+  return json(await toSafePost(post));
 }
 
 /**
@@ -275,7 +276,7 @@ export async function handleAgentUpdatePost(
   const { allowed, remaining } = await checkRateLimit(kv, agent.keyHash, agent.rateLimit, pfx);
   if (!allowed) return json({ error: "Rate limit exceeded" }, 429);
 
-  const existing = await getPost(kv, slug, pfx);
+  const existing = await getPost(kv, slug, pfx, { includeDrafts: true });
   if (!existing) return json({ error: "Post not found" }, 404);
 
   let body: unknown;
@@ -294,7 +295,14 @@ export async function handleAgentUpdatePost(
   }
 
   const data = parsed.data;
-  if (agent.scope === "draft-only") data.status = "draft";
+  // A post lives under one key, so writing a published post back as a draft
+  // unpublishes it. That needs publish scope, as DELETE does; a draft-only
+  // key may only revise drafts.
+  if (agent.scope === "draft-only") {
+    if (existing.status !== "draft")
+      return json({ error: "draft-only keys can only edit drafts" }, 403);
+    data.status = "draft";
+  }
 
   const now = new Date().toISOString();
   const updated: AgentCMSPost = {
@@ -366,7 +374,7 @@ export async function handleAgentDeletePost(
   const { allowed, remaining } = await checkRateLimit(kv, agent.keyHash, agent.rateLimit, pfx);
   if (!allowed) return json({ error: "Rate limit exceeded" }, 429);
 
-  const existing = await getPost(kv, slug, pfx);
+  const existing = await getPost(kv, slug, pfx, { includeDrafts: true });
   if (!existing) return json({ error: "Post not found" }, 404);
 
   await deletePost(kv, slug, pfx);
