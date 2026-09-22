@@ -1,0 +1,62 @@
+# Auto-publish on merge to main. Runs after `ci` finished green on main, and
+# publishes when package.json's version is not on npm yet — so "bump the
+# version in the PR" IS the release. Nobody runs `npm publish` by hand.
+#
+# Auth is npm trusted publishing (GitHub OIDC): no token in the repo, no 2FA
+# prompt, provenance attached. One-time setup on npmjs.com → @agentcms/agentcms
+# → Settings → Trusted publisher → GitHub Actions:
+#   repository: agentcms/agentcms     workflow: publish.yml     environment: (blank)
+# or: npm trust github @agentcms/agentcms --file publish.yml --repo agentcms/agentcms
+name: publish
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # OIDC token for trusted publishing
+
+concurrency:
+  group: publish-main
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # workflow_run fires on failure too; only proceed on a green ci (or a manual run).
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The commit ci just validated — not whatever main is by now.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          registry-url: 'https://registry.npmjs.org'
+
+      # Trusted publishing needs npm >= 11.5.1.
+      - run: npm install -g npm@latest
+
+      - run: npm ci --no-audit --fund=false
+      - run: npm run build
+
+      - name: Publish if this version is not on npm yet
+        run: |
+          set -euo pipefail
+          name=$(node -p "require('./package.json').name")
+          ver=$(node -p "require('./package.json').version")
+          if npm view "$name@$ver" version >/dev/null 2>&1; then
+            echo "· $name@$ver is already on npm, nothing to publish"
+            exit 0
+          fi
+          # No token at publish time: OIDC must be the credential npm finds.
+          npm config delete //registry.npmjs.org/:_authToken || true
+          echo "⇧ publishing $name@$ver"
+          npm publish --access public
