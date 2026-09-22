@@ -12,8 +12,8 @@ import type { AgentCMSPost } from "../../types.js";
 
 const UpdateSchema = z.object({
   title: z.string().min(5).max(200).optional(),
-  content: z.string().min(50).optional(),
-  contentHtml: z.string().optional(),
+  content: z.string().min(50).max(200_000).optional(),
+  contentHtml: z.string().max(200_000).optional(),
   description: z.string().max(300).optional(),
   tags: z.array(z.string()).max(10).optional(),
   category: z.string().optional(),
@@ -63,9 +63,11 @@ export const GET: APIRoute = async ({ params, request }) => {
   const agent = await validateApiKey(kv, request.headers.get("Authorization"), prefix);
   if (!agent) return json({ error: "Invalid or missing API key" }, 401);
 
-  const post = await getPost(kv, params.slug, prefix);
+  const post = await getPost(kv, params.slug, prefix, { includeDrafts: true });
   if (!post) return json({ error: "Post not found" }, 404);
 
+  // The stored post as the agent wrote it, for editing. Not for rendering:
+  // a generated contentHtml here would be PUT back and outrank later edits.
   return json(post);
 };
 
@@ -95,7 +97,7 @@ export const PUT: APIRoute = async ({ params, request }) => {
     return json({ error: "Rate limit exceeded" }, 429);
   }
 
-  const existing = await getPost(kv, params.slug, prefix);
+  const existing = await getPost(kv, params.slug, prefix, { includeDrafts: true });
   if (!existing) return json({ error: "Post not found" }, 404);
 
   // --- Parse & validate ---
@@ -117,7 +119,13 @@ export const PUT: APIRoute = async ({ params, request }) => {
   const data = parsed.data;
 
   // --- Enforce draft-only scope ---
+  // A post lives under one key, so writing a published post back as a draft
+  // unpublishes it. That needs publish scope, as DELETE does; a draft-only
+  // key may only revise drafts.
   if (agent.scope === "draft-only") {
+    if (existing.status !== "draft") {
+      return json({ error: "draft-only keys can only edit drafts" }, 403);
+    }
     data.status = "draft";
   }
 
@@ -190,7 +198,7 @@ export const DELETE: APIRoute = async ({ params, request }) => {
     return json({ error: "Rate limit exceeded" }, 429);
   }
 
-  const existing = await getPost(kv, params.slug, prefix);
+  const existing = await getPost(kv, params.slug, prefix, { includeDrafts: true });
   if (!existing) return json({ error: "Post not found" }, 404);
 
   await deletePost(kv, params.slug, prefix);

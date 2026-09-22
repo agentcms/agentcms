@@ -56,6 +56,18 @@ export {
   extractHeadings,
 } from "./utils/content.js";
 
+// --- Sanitization ---
+// Post content is agent-written and untrusted. Render it only through these.
+export {
+  renderMarkdown,
+  renderPostHtml,
+  sanitizePostHtml,
+  stripHtml,
+  isSafeUrl,
+  toSafePost,
+  ALLOWED_TAGS,
+} from "./utils/sanitize.js";
+
 // --- Data Helpers ---
 // These are the primary API for reading posts in .astro pages.
 // They read from KV via the cloudflare:workers env binding.
@@ -71,6 +83,7 @@ import type {
   AgentCMSSiteConfig,
 } from "./types.js";
 import { getPost } from "./utils/kv.js";
+import { toSafePost, toSafeListPost } from "./utils/sanitize.js";
 import { queryPosts, queryTags, queryCategories, queryConfig } from "./utils/query.js";
 
 /**
@@ -117,17 +130,22 @@ export async function getAgentCMSPosts(
   options: GetPostsOptions = {}
 ): Promise<GetPostsResult> {
   const kv = await getKV();
-  return queryPosts(kv, options, await getKvPrefix());
+  const result = await queryPosts(kv, options, await getKvPrefix());
+  return { ...result, posts: result.posts.map(toSafeListPost) };
 }
 
 /**
- * Get a single post by slug
+ * Get a single post by slug: published or scheduled, never a draft. Check
+ * `status === "published"` before rendering it publicly. `contentHtml` is
+ * rendered and sanitized; `content` is the raw agent-written markdown — never
+ * insert it as HTML.
  */
 export async function getAgentCMSPost(
   slug: string
 ): Promise<AgentCMSPost | null> {
   const kv = await getKV();
-  return getPost(kv, slug, await getKvPrefix());
+  const post = await getPost(kv, slug, await getKvPrefix());
+  return post ? toSafePost(post) : null;
 }
 
 /**
