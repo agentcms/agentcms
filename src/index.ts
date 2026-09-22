@@ -135,9 +135,10 @@ export async function getAgentCMSPosts(
 }
 
 /**
- * Get a single published post by slug. `contentHtml` is rendered and
- * sanitized; `content` is the raw agent-written markdown — never insert it as
- * HTML.
+ * Get a single post by slug: published or scheduled, never a draft. Check
+ * `status === "published"` before rendering it publicly. `contentHtml` is
+ * rendered and sanitized; `content` is the raw agent-written markdown — never
+ * insert it as HTML.
  */
 export async function getAgentCMSPost(
   slug: string

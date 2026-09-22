@@ -25,15 +25,14 @@ import {
   generateDescription,
 } from "../utils/content.js";
 import { sendWebhook } from "../utils/webhook.js";
-import { toSafePost } from "../utils/sanitize.js";
 import type { AgentCMSEnv } from "./public.js";
 
 // --- Schemas ---
 
 const PublishSchema = z.object({
   title: z.string().min(5).max(200),
-  content: z.string().min(50),
-  contentHtml: z.string().optional(),
+  content: z.string().min(50).max(200_000),
+  contentHtml: z.string().max(200_000).optional(),
   description: z.string().max(300).optional(),
   tags: z.array(z.string()).max(10).default([]),
   category: z.string().optional(),
@@ -52,8 +51,8 @@ const PublishSchema = z.object({
 
 const UpdateSchema = z.object({
   title: z.string().min(5).max(200).optional(),
-  content: z.string().min(50).optional(),
-  contentHtml: z.string().optional(),
+  content: z.string().min(50).max(200_000).optional(),
+  contentHtml: z.string().max(200_000).optional(),
   description: z.string().max(300).optional(),
   tags: z.array(z.string()).max(10).optional(),
   category: z.string().optional(),
@@ -253,7 +252,9 @@ export async function handleAgentGetPost(
   const post = await getPost(kv, slug, pfx, { includeDrafts: true });
   if (!post) return json({ error: "Post not found" }, 404);
 
-  return json(await toSafePost(post));
+  // The stored post as the agent wrote it, for editing. Not for rendering:
+  // a generated contentHtml here would be PUT back and outrank later edits.
+  return json(post);
 }
 
 /**

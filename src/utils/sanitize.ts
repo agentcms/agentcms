@@ -8,21 +8,24 @@
 // an agent can also store `contentHtml` directly, so `<script>` or
 // `<img onerror>` in a post reaches the DOM of whatever site renders it.
 //
-// This module is the single boundary. Every path that hands post HTML out of
-// the package — the public and agent handlers, getAgentCMSPost/getAgentCMSPosts,
+// This module is the single boundary. Every path that hands post HTML to a
+// reader — the public handlers, getAgentCMSPost/getAgentCMSPosts,
 // BlogPost.astro — goes through `toSafePost` / `renderPostHtml`. A consumer
 // should never need to call `marked` itself.
 //
-// How: parse with node-html-parser (pure JS, runs in Workers and Node alike —
-// sanitize-html needs postcss, which needs Node built-ins), then *rebuild* the
-// HTML from the tree: only allowlisted tags and attributes, every text node and
-// attribute value escaped by us. Nothing from the input is copied through as a
-// raw string, so there is no markup the output can contain that we did not
-// write.
+// How: htmlparser2 tokenizes the input as a stream of open/text/close events
+// (pure JS, so it runs in Workers and Node alike — sanitize-html needs postcss,
+// which needs Node built-ins). We write the output ourselves from those
+// events: only allowlisted tags and attributes, every text node and attribute
+// value escaped by us. Nothing from the input is copied through as a raw
+// string, so the output contains no markup we did not write. The walk is a
+// single pass with an explicit stack and no recursion, and input size is
+// capped (MAX_INPUT), so hostile nesting cannot blow the stack or the CPU
+// budget.
 // ============================================================================
 
 import { Marked } from "marked";
-import { parse, NodeType, type Node, type HTMLElement } from "node-html-parser";
+import { Parser } from "htmlparser2";
 import type { AgentCMSPost } from "../types.js";
 
 const marked = new Marked();
@@ -53,6 +56,11 @@ const INLINE_TAGS: ReadonlySet<string> = new Set([
   "samp", "q", "cite", "abbr", "time", "sup", "sub", "small", "span",
 ]);
 
+/**
+ * No `id`: content ids can clobber globals on the host page (`id="config"`
+ * becomes `window.config`) or collide with the page's own elements.
+ * No `style`, no `class` (except `language-*` on code), no `target`.
+ */
 const ALLOWED_ATTRIBUTES: Readonly<Record<string, readonly string[]>> = {
   a: ["href", "title"],
   img: ["src", "alt", "title", "width", "height", "loading"],
@@ -66,29 +74,56 @@ const ALLOWED_ATTRIBUTES: Readonly<Record<string, readonly string[]>> = {
   td: ["colspan", "rowspan"],
   col: ["span"],
   colgroup: ["span"],
-  h1: ["id"], h2: ["id"], h3: ["id"], h4: ["id"], h5: ["id"], h6: ["id"],
 };
 
 const URL_ATTRIBUTES: ReadonlySet<string> = new Set(["href", "src", "cite"]);
 
+/** Output nesting beyond this is flattened (text kept, tags dropped). */
+const MAX_DEPTH = 64;
+
 /**
- * Schemes a URL may carry. No `javascript:`, no `data:` (the package ships an
- * R2 upload route for images), no protocol-relative `//host`.
+ * Input beyond this is cut off before parsing. htmlparser2 slows down
+ * superlinearly past ~20k unclosed elements; at this size the worst case stays
+ * around a quarter-second, and no real post comes close (writes are capped at
+ * 200k characters). Cutting mid-tag is safe: the parser closes what is open.
  */
-const ALLOWED_SCHEMES: ReadonlySet<string> = new Set(["http", "https", "mailto"]);
+const MAX_INPUT = 256 * 1024;
+
+const SAFE_PROTOCOLS: ReadonlySet<string> = new Set(["http:", "https:", "mailto:"]);
+// "https:evil.example" is a relative path on an https page and an absolute
+// URL on an http one, so resolve against both and take the stricter answer.
+const BASES = ["https://base.invalid/", "http://base.invalid/"];
+
+/**
+ * Parse a URL the way a browser will — the WHATWG URL parser strips the
+ * whitespace and control characters that hide a scheme ("java\tscript:"),
+ * and treats "\" as "/" — and allow only http(s), mailto and relative URLs.
+ * No `javascript:`, no `data:` (the package ships an R2 upload route).
+ * `external` is true if the URL can leave the host page's origin.
+ */
+function classifyUrl(value: string): { external: boolean } | null {
+  let external = false;
+  for (const base of BASES) {
+    let url: URL;
+    try {
+      url = new URL(value, base);
+    } catch {
+      return null;
+    }
+    if (!SAFE_PROTOCOLS.has(url.protocol)) return null;
+    if (url.protocol !== "mailto:" && url.origin !== new URL(base).origin) external = true;
+  }
+  return { external };
+}
 
 export function isSafeUrl(value: string): boolean {
-  // Browsers ignore ASCII whitespace and control characters inside a scheme
-  // ("java\tscript:"), so test the URL with those removed.
-  const v = value.replace(/[\u0000- \u007f]/g, "");
-  if (v.startsWith("//") || v.startsWith("\\\\") || v.startsWith("/\\")) return false;
-  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(v);
-  if (!scheme) return true; // relative: path, #fragment, ?query
-  return ALLOWED_SCHEMES.has(scheme[1].toLowerCase());
+  return classifyUrl(value) !== null;
 }
 
 function isSafeSrcset(value: string): boolean {
-  return value.split(",").every((c) => isSafeUrl(c.trim().split(/\s+/)[0] ?? ""));
+  return value
+    .split(",")
+    .every((c) => isSafeUrl(c.trim().split(/\s+/)[0] ?? ""));
 }
 
 function escapeText(s: string): string {
@@ -99,66 +134,101 @@ function escapeAttr(s: string): string {
   return escapeText(s).replace(/"/g, "&quot;");
 }
 
-function safeAttributes(tag: string, el: HTMLElement): string {
+/** Attribute names arrive lower-cased from the parser. */
+function safeAttributes(tag: string, attribs: Record<string, string>): string {
   const out: string[] = [];
   const allowed = ALLOWED_ATTRIBUTES[tag] ?? [];
-  const attrs = el.attributes;
-  for (const [rawName, value] of Object.entries(attrs)) {
-    const name = rawName.toLowerCase();
+  let external = false;
+  for (const [name, value] of Object.entries(attribs)) {
     if (!allowed.includes(name)) continue;
-    if (URL_ATTRIBUTES.has(name) && !isSafeUrl(value)) continue;
+    if (URL_ATTRIBUTES.has(name)) {
+      const url = classifyUrl(value);
+      if (!url) continue;
+      if (name === "href") external = url.external;
+    }
     if (name === "srcset" && !isSafeSrcset(value)) continue;
-    // An id is fine for heading anchors, not for clobbering the host page's DOM.
-    if (name === "id" && !/^[A-Za-z][\w-]{0,99}$/.test(value)) continue;
     out.push(`${name}="${escapeAttr(value)}"`);
   }
 
   // marked emits <pre><code class="language-ts">; keep only that class so
   // syntax highlighting works without letting content restyle the host page.
   if (tag === "code" || tag === "pre") {
-    const lang = (attrs.class ?? "")
+    const lang = (attribs.class ?? "")
       .split(/\s+/)
       .filter((c) => /^language-[\w+#.-]{1,40}$/.test(c));
     if (lang.length) out.push(`class="${escapeAttr(lang.join(" "))}"`);
   }
 
-  // No `target` is ever emitted, so no link keeps a handle on the opener;
-  // external links are also marked as untrusted for search engines.
-  if (tag === "a" && /^https?:\/\//i.test((attrs.href ?? "").trim())) {
-    out.push(`rel="noopener noreferrer nofollow ugc"`);
-  }
+  // External links: no opener handle (no `target` is ever emitted anyway),
+  // and no search-engine credit for links an agent was talked into adding.
+  if (tag === "a" && external) out.push(`rel="noopener noreferrer nofollow ugc"`);
   return out.length ? ` ${out.join(" ")}` : "";
 }
 
-function serialize(node: Node): string {
-  if (node.nodeType === NodeType.TEXT_NODE) return escapeText(node.text);
-  if (node.nodeType !== NodeType.ELEMENT_NODE) return ""; // comments
+type Frame = "emit" | "unwrap" | "drop";
 
-  const el = node as HTMLElement;
-  const tag = (el.rawTagName ?? "").toLowerCase();
-  const children = () => el.childNodes.map(serialize).join("");
-
-  if (!tag) return children(); // the root
-  if (DROP_WITH_CONTENT.has(tag)) return "";
-  if (!ALLOWED_TAGS.has(tag)) return children();
-  if (VOID_TAGS.has(tag)) return `<${tag}${safeAttributes(tag, el)}>`;
-  return `<${tag}${safeAttributes(tag, el)}>${children()}</${tag}>`;
-}
-
-function parseHtml(html: string): HTMLElement {
-  return parse(html, {
-    comment: false,
-    lowerCaseTagName: false,
-    // Default treats <pre> as raw text, which would escape fenced code blocks
-    // into visible tags. Raw-text elements listed here are dropped anyway.
-    blockTextElements: { script: true, style: true, noscript: true, textarea: true },
-  });
+/**
+ * Stream the input through htmlparser2, tracking per open element whether it
+ * is emitted, unwrapped (children kept) or dropped (children discarded).
+ */
+function walk(
+  input: string,
+  on: {
+    open(tag: string, attribs: Record<string, string>, depth: number): Frame;
+    close(tag: string, frame: Frame): void;
+    text(text: string): void;
+  }
+): void {
+  const stack: Frame[] = [];
+  let dropping = 0; // > 0 while inside a dropped element
+  let depth = 0; // emitted elements currently open
+  const parser = new Parser(
+    {
+      onopentag(name, attribs) {
+        let frame: Frame;
+        if (dropping || DROP_WITH_CONTENT.has(name)) frame = "drop";
+        else frame = on.open(name, attribs, depth);
+        if (frame === "drop") dropping++;
+        if (frame === "emit" && !VOID_TAGS.has(name)) depth++;
+        stack.push(frame);
+      },
+      onclosetag(name) {
+        const frame = stack.pop();
+        if (frame === undefined) return;
+        if (frame === "drop") dropping--;
+        else on.close(name, frame);
+        if (frame === "emit" && !VOID_TAGS.has(name)) depth--;
+      },
+      ontext(text) {
+        if (!dropping) on.text(text);
+      },
+      // Comments, CDATA and processing instructions are simply not handled,
+      // so content cannot smuggle template markers or conditional comments.
+    },
+    { decodeEntities: true, lowerCaseTags: true, lowerCaseAttributeNames: true }
+  );
+  parser.write(input.length > MAX_INPUT ? input.slice(0, MAX_INPUT) : input);
+  parser.end(); // closes anything left open, so every open gets its close
 }
 
 /** Sanitize HTML that is already HTML. */
 export function sanitizePostHtml(html: string): string {
   if (!html) return "";
-  return serialize(parseHtml(html));
+  let out = "";
+  walk(html, {
+    open(tag, attribs, depth) {
+      if (!ALLOWED_TAGS.has(tag) || depth >= MAX_DEPTH) return "unwrap";
+      out += `<${tag}${safeAttributes(tag, attribs)}>`;
+      return "emit";
+    },
+    close(tag, frame) {
+      if (frame === "emit" && !VOID_TAGS.has(tag)) out += `</${tag}>`;
+    },
+    text(text) {
+      out += escapeText(text);
+    },
+  });
+  return out;
 }
 
 /** Markdown (which may contain raw HTML) to HTML that is safe to insert. */
@@ -180,7 +250,7 @@ export async function renderPostHtml(
 }
 
 /**
- * The post as it may leave the package: `contentHtml` always present and
+ * The post as it may be handed to a reader: `contentHtml` always present and
  * safe. `content` stays the raw markdown the agent wrote — untrusted; render
  * it only through this module.
  */
@@ -204,15 +274,22 @@ export function toSafeListPost<T extends AgentCMSPost>(post: T): T {
  */
 export function stripHtml(input: string): string {
   if (!input) return "";
-  const text = (n: Node): string => {
-    if (n.nodeType === NodeType.TEXT_NODE) return n.text;
-    if (n.nodeType !== NodeType.ELEMENT_NODE) return "";
-    const el = n as HTMLElement;
-    const tag = (el.rawTagName ?? "").toLowerCase();
-    if (DROP_WITH_CONTENT.has(tag)) return "";
-    const inner = el.childNodes.map(text).join("");
-    // Block boundaries become spaces ("<p>a</p><p>b</p>" is "a b", not "ab").
-    return !tag || INLINE_TAGS.has(tag) ? inner : ` ${inner} `;
+  let out = "";
+  // Block boundaries become spaces ("<p>a</p><p>b</p>" is "a b", not "ab").
+  const boundary = (tag: string) => {
+    if (!INLINE_TAGS.has(tag)) out += " ";
   };
-  return text(parseHtml(input)).replace(/\s+/g, " ").trim();
+  walk(input, {
+    open(tag) {
+      boundary(tag);
+      return "unwrap";
+    },
+    close(tag) {
+      boundary(tag);
+    },
+    text(text) {
+      out += text;
+    },
+  });
+  return out.replace(/\s+/g, " ").trim();
 }

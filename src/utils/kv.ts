@@ -72,28 +72,6 @@ export async function putPost(
   await kv.delete(isDraft ? keys.post(post.slug) : keys.draft(post.slug));
 }
 
-/** All drafts, newest update first. Not exposed over HTTP. */
-export async function listDrafts(
-  kv: KVNamespace,
-  prefix?: string
-): Promise<AgentCMSPost[]> {
-  const keys = prefix ? kvKeys(prefix) : KEYS;
-  const draftPrefix = keys.draft("");
-  const names: string[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await kv.list({ prefix: draftPrefix, cursor });
-    names.push(...page.keys.map((k) => k.name));
-    cursor = page.list_complete ? undefined : page.cursor;
-  } while (cursor);
-  const drafts = await Promise.all(
-    names.map((name) => kv.get<AgentCMSPost>(name, "json"))
-  );
-  return drafts
-    .filter((d): d is AgentCMSPost => d !== null)
-    .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
-}
-
 export async function deletePost(
   kv: KVNamespace,
   slug: string,

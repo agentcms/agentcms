@@ -49,10 +49,24 @@ describe("sanitizePostHtml", () => {
     }
   });
 
-  it("drops data: and protocol-relative URLs", () => {
+  it("drops data: URLs", () => {
     expect(sanitizePostHtml('<img src="data:image/png;base64,AAAA">')).toBe("<img>");
-    expect(sanitizePostHtml('<img src="//evil.example/x.png">')).toBe("<img>");
     expect(sanitizePostHtml('<source srcset="/a.png 1x, data:x 2x">')).toBe("<source>");
+  });
+
+  it("treats protocol-relative and backslash URLs as the external links they are", () => {
+    const rel = 'rel="noopener noreferrer nofollow ugc"';
+    for (const href of ["//evil.example", "\\/evil.example", "https:evil.example", "http:\\\\evil.example"]) {
+      expect(sanitizePostHtml(`<a href="${href}">x</a>`)).toContain(rel);
+    }
+  });
+
+  it("reads attribute names case-insensitively", () => {
+    expect(sanitizePostHtml('<a HREF="https://x.example">x</a>')).toContain('rel="noopener');
+    expect(sanitizePostHtml('<pre><code CLASS="language-js">x</code></pre>')).toBe(
+      '<pre><code class="language-js">x</code></pre>'
+    );
+    expect(sanitizePostHtml('<IMG SRC="/a.png" ONERROR="alert(1)">')).toBe('<img src="/a.png">');
   });
 
   it("drops iframes, forms, svg and style with their content", () => {
@@ -92,9 +106,32 @@ describe("sanitizePostHtml", () => {
     expect(sanitizePostHtml('<a href="/local">x</a>')).toBe('<a href="/local">x</a>');
   });
 
-  it("keeps heading ids only when they are plain anchors", () => {
-    expect(sanitizePostHtml('<h2 id="intro">a</h2>')).toBe('<h2 id="intro">a</h2>');
-    expect(sanitizePostHtml('<h2 id="a b">a</h2>')).toBe("<h2>a</h2>");
+  it("drops ids, which could clobber globals on the host page", () => {
+    expect(sanitizePostHtml('<h2 id="config">a</h2>')).toBe("<h2>a</h2>");
+  });
+
+  it("closes what the input left open", () => {
+    expect(sanitizePostHtml("<p><b>x")).toBe("<p><b>x</b></p>");
+  });
+
+  it("stays linear on thousands of unclosed tags", () => {
+    const start = Date.now();
+    const out = sanitizePostHtml("<div>".repeat(20000) + "x");
+    expect(Date.now() - start).toBeLessThan(1000);
+    expect(out).toContain("x");
+  });
+
+  it("bounds the work on oversized hostile input", () => {
+    const start = Date.now();
+    sanitizePostHtml("<div>".repeat(500000));
+    expect(Date.now() - start).toBeLessThan(2000);
+  });
+
+  it("does not overflow the stack on deep nesting, and caps output depth", () => {
+    const out = sanitizePostHtml(`${"<b>".repeat(20000)}x${"</b>".repeat(20000)}`);
+    expect(out).toContain("x");
+    expect(out.match(/<b>/g)?.length).toBe(64);
+    expect(stripHtml(`${"<b>".repeat(20000)}x`)).toBe("x");
   });
 
   it("keeps tables and figures", () => {
@@ -159,13 +196,13 @@ describe("stripHtml", () => {
 
 describe("isSafeUrl", () => {
   it("allows relative, http(s) and mailto", () => {
-    for (const u of ["/a", "a/b:c", "#x", "?q=1", "https://x", "http://x", "mailto:a@b"]) {
+    for (const u of ["/a", "a/b:c", "#x", "?q=1", "https://x", "http://x", "mailto:a@b", "//x"]) {
       expect(isSafeUrl(u)).toBe(true);
     }
   });
 
   it("refuses other schemes", () => {
-    for (const u of ["javascript:1", "vbscript:1", "data:x", "file:///etc", "//x", "\\\\x"]) {
+    for (const u of ["javascript:1", " javascript:1", "java\tscript:1", "vbscript:1", "data:x", "file:///etc"]) {
       expect(isSafeUrl(u)).toBe(false);
     }
   });

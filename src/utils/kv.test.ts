@@ -4,7 +4,6 @@ import {
   getPost,
   putPost,
   deletePost,
-  listDrafts,
   getIndex,
   updateIndex,
   getConfig,
@@ -192,13 +191,6 @@ describe("draft lifecycle — a post lives under exactly one key", () => {
     await putPost(kv, makePost({ status: "draft" }), "site");
     expect(await getPost(kv, "test-post", "site")).toBeNull();
     expect(await kv.get("site:posts:draft:test-post")).not.toBeNull();
-  });
-
-  it("listDrafts returns drafts only, newest first", async () => {
-    await putPost(kv, makePost({ slug: "a", status: "draft", updatedAt: "2025-01-01T00:00:00Z" }));
-    await putPost(kv, makePost({ slug: "b", status: "draft", updatedAt: "2025-02-01T00:00:00Z" }));
-    await putPost(kv, makePost({ slug: "c" }));
-    expect((await listDrafts(kv)).map((d) => d.slug)).toEqual(["b", "a"]);
   });
 });
 
