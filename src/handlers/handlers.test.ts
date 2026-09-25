@@ -184,6 +184,14 @@ describe("original dates on publish and update", () => {
     expect((await update("admin", "imp", { updatedAt: "2020-01-01T00:00:00Z" })).status).toBe(422);
   });
 
+  it("rejects updatedAt when there is no publish date to order it after", async () => {
+    const res = await publish("admin", { title: "New post", slug: "n", content: BODY, updatedAt: OLD });
+    expect(res.status).toBe(422);
+    await publish("admin", { title: "Draft post", slug: "d", content: BODY, status: "draft" });
+    expect((await update("admin", "d", { status: "published", updatedAt: OLD })).status).toBe(422);
+    expect((await publicGet("d")).status).toBe(404);
+  });
+
   it("publishing a draft keeps a publishedAt given in the same update", async () => {
     await publish("admin", { title: "Draft post", slug: "d", content: BODY, status: "draft" });
     await update("admin", "d", { status: "published", publishedAt: OLD });

@@ -103,6 +103,11 @@ function resolveDates(
     }
   }
   const start = publishedAt || existingPublishedAt;
+  // Without a publish date to compare against, the handler would stamp one
+  // with now — after this updatedAt.
+  if (updatedAt && !start) {
+    return { error: json({ error: "updatedAt needs a publishedAt" }, 422) };
+  }
   if (updatedAt && start && Date.parse(updatedAt) < Date.parse(start)) {
     return { error: json({ error: "updatedAt is before publishedAt" }, 422) };
   }
