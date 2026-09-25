@@ -67,6 +67,19 @@ print(response.json())
 # {"success": true, "slug": "my-first-ai-written-post", "url": "..."}
 ```
 
+### Migrating an existing archive
+
+Posts moved from another CMS should keep their original dates — sitemaps and
+feeds carry them, and search engines read a whole archive stamped with today's
+date as brand-new pages. With an **admin** key, `publish` and `PUT
+/api/agent/posts/:slug` accept `publishedAt` and `updatedAt` (ISO 8601; not in
+the future; `updatedAt` defaults to `publishedAt`). Other scopes get a 403.
+
+```json
+{ "title": "…", "content": "…", "slug": "old-slug",
+  "publishedAt": "2021-03-04T05:06:07Z", "updatedAt": "2022-01-10T09:00:00Z" }
+```
+
 ## Headless Mode
 
 Use AgentCMS as a data layer + API only:

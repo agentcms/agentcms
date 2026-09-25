@@ -130,3 +130,68 @@ describe("draft lifecycle through the handlers", () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe("original dates on publish and update", () => {
+  const OLD = "2021-03-04T05:06:07.000Z";
+  const stored = (slug: string) =>
+    read(handleAgentGetPost(req("GET", `/api/agent/posts/${slug}`, "admin"), env, slug));
+
+  beforeEach(() => addKey("admin", "admin"));
+
+  it("an admin key keeps the original publishedAt, and updatedAt defaults to it", async () => {
+    const res = await publish("admin", { title: "An old post", slug: "old", content: BODY, publishedAt: OLD });
+    expect(res.status).toBe(201);
+    expect(await stored("old")).toMatchObject({ publishedAt: OLD, updatedAt: OLD });
+  });
+
+  it("normalizes an offset date to UTC", async () => {
+    await publish("admin", { title: "An old post", slug: "old", content: BODY, publishedAt: "2021-03-04T07:06:07+02:00" });
+    expect((await stored("old")).publishedAt).toBe(OLD);
+  });
+
+  it("a backdated post sorts by its date in listings, not by when it was imported", async () => {
+    await publish("pub", { title: "A new post", slug: "new", content: BODY });
+    await publish("admin", { title: "An old post", slug: "old", content: BODY, publishedAt: OLD });
+    const list = await read(handleListPosts(req("GET", "/api/posts"), env));
+    expect(list.posts.map((p: { slug: string }) => p.slug)).toEqual(["new", "old"]);
+  });
+
+  it("a publish key cannot set dates, and nothing is written", async () => {
+    const res = await publish("pub", { title: "An old post", slug: "old", content: BODY, publishedAt: OLD });
+    expect(res.status).toBe(403);
+    expect((await publicGet("old")).status).toBe(404);
+    expect((await update("pub", "old", { updatedAt: OLD })).status).toBe(404);
+  });
+
+  it("rejects a future date and an updatedAt before publishedAt", async () => {
+    const future = new Date(Date.now() + 86_400_000).toISOString();
+    expect((await publish("admin", { title: "Future post", slug: "f", content: BODY, publishedAt: future })).status).toBe(422);
+    const res = await publish("admin", {
+      title: "Backwards post",
+      slug: "b",
+      content: BODY,
+      publishedAt: OLD,
+      updatedAt: "2020-01-01T00:00:00Z",
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it("an admin can correct the dates of an existing post; others cannot", async () => {
+    await publish("pub", { title: "Imported post", slug: "imp", content: BODY });
+    expect((await update("pub", "imp", { publishedAt: OLD })).status).toBe(403);
+    expect((await update("admin", "imp", { publishedAt: OLD, updatedAt: OLD })).status).toBe(200);
+    expect(await stored("imp")).toMatchObject({ publishedAt: OLD, updatedAt: OLD });
+    expect((await update("admin", "imp", { updatedAt: "2020-01-01T00:00:00Z" })).status).toBe(422);
+  });
+
+  it("publishing a draft keeps a publishedAt given in the same update", async () => {
+    await publish("admin", { title: "Draft post", slug: "d", content: BODY, status: "draft" });
+    await update("admin", "d", { status: "published", publishedAt: OLD });
+    expect((await stored("d")).publishedAt).toBe(OLD);
+  });
+
+  it("stores contentHtml given on publish, and serves it sanitized", async () => {
+    await publish("pub", { title: "Html post", slug: "h", content: BODY, contentHtml: "<p>hi</p><script>x</script>" });
+    expect((await read(publicGet("h"))).contentHtml).toBe("<p>hi</p>");
+  });
+});
