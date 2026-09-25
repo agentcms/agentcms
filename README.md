@@ -75,6 +75,11 @@ date as brand-new pages. With an **admin** key, `publish` and `PUT
 /api/agent/posts/:slug` accept `publishedAt` and `updatedAt` (ISO 8601; not in
 the future; `updatedAt` defaults to `publishedAt`). Other scopes get a 403.
 
+Dates need a time and a zone: `2021-03-14T00:00:00Z` or
+`2021-03-14T10:00:00+01:00`. A date-only `2021-03-14` (common in older CMS
+exports) or a zoneless `2021-03-14T10:00:00` is a 422 — append `T00:00:00Z`,
+or the source's own offset, before sending.
+
 ```json
 { "title": "…", "content": "…", "slug": "old-slug",
   "publishedAt": "2021-03-04T05:06:07Z", "updatedAt": "2022-01-10T09:00:00Z" }
