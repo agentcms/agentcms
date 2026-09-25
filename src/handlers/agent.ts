@@ -8,7 +8,7 @@
 // ============================================================================
 
 import { z } from "zod";
-import type { AgentCMSPost, AgentSkillDefinition } from "../types.js";
+import type { AgentCMSPost, AgentKeyScope, AgentSkillDefinition } from "../types.js";
 import {
   validateApiKey,
   checkRateLimit,
@@ -47,6 +47,9 @@ const PublishSchema = z.object({
   featured: z.boolean().default(false),
   noindex: z.boolean().default(false),
   canonicalUrl: z.string().url().optional(),
+  // Original dates, for migrating an existing archive (admin keys only).
+  publishedAt: z.string().datetime({ offset: true }).optional(),
+  updatedAt: z.string().datetime({ offset: true }).optional(),
 });
 
 const UpdateSchema = z.object({
@@ -63,9 +66,53 @@ const UpdateSchema = z.object({
   featured: z.boolean().optional(),
   noindex: z.boolean().optional(),
   canonicalUrl: z.string().url().optional().nullable(),
+  publishedAt: z.string().datetime({ offset: true }).optional(),
+  updatedAt: z.string().datetime({ offset: true }).optional(),
 });
 
 // --- Helpers ---
+
+/** Allowed clock skew when checking that a supplied date is not in the future. */
+const CLOCK_SKEW_MS = 60_000;
+
+/**
+ * Check caller-supplied publishedAt/updatedAt and normalize them to UTC ISO.
+ *
+ * Setting dates is how an existing archive keeps its history when it moves
+ * here: sitemaps and feeds carry these dates, and search engines take them at
+ * face value. For the same reason only admin keys may set them — a publish key
+ * could otherwise pass new text off as an old article. Future dates are
+ * rejected (that is what status "scheduled" is for), and a post cannot be
+ * updated before it was published.
+ */
+function resolveDates(
+  scope: AgentKeyScope,
+  input: { publishedAt?: string; updatedAt?: string },
+  existingPublishedAt?: string
+): { error: Response } | { publishedAt?: string; updatedAt?: string } {
+  if (input.publishedAt === undefined && input.updatedAt === undefined) return {};
+  if (scope !== "admin") {
+    return { error: json({ error: "Setting publishedAt or updatedAt requires admin scope" }, 403) };
+  }
+  const limit = Date.now() + CLOCK_SKEW_MS;
+  const publishedAt = input.publishedAt && new Date(input.publishedAt).toISOString();
+  const updatedAt = input.updatedAt && new Date(input.updatedAt).toISOString();
+  for (const [field, value] of [["publishedAt", publishedAt], ["updatedAt", updatedAt]] as const) {
+    if (value && Date.parse(value) > limit) {
+      return { error: json({ error: `${field} is in the future; use status "scheduled"` }, 422) };
+    }
+  }
+  const start = publishedAt || existingPublishedAt;
+  // Without a publish date to compare against, the handler would stamp one
+  // with now — after this updatedAt.
+  if (updatedAt && !start) {
+    return { error: json({ error: "updatedAt needs a publishedAt" }, 422) };
+  }
+  if (updatedAt && start && Date.parse(updatedAt) < Date.parse(start)) {
+    return { error: json({ error: "updatedAt is before publishedAt" }, 422) };
+  }
+  return { publishedAt: publishedAt || undefined, updatedAt: updatedAt || undefined };
+}
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -109,7 +156,8 @@ async function shortHash(buffer: ArrayBuffer): Promise<string> {
  */
 export async function handlePublish(
   request: Request,
-  env: AgentCMSEnv
+  env: AgentCMSEnv,
+  options: { basePath?: string } = {}
 ): Promise<Response> {
   const kv = env.AGENTCMS_KV;
   const pfx = env.AGENTCMS_PREFIX;
@@ -148,9 +196,15 @@ export async function handlePublish(
   const existing = await getPost(kv, slug, pfx, { includeDrafts: true });
   if (existing) return json({ error: "Slug already exists", slug }, 409);
 
+  const dates = resolveDates(agent.scope, data);
+  if ("error" in dates) return dates.error;
+
   // Determine effective status
   let effectiveStatus = data.status;
   if (agent.scope === "draft-only") effectiveStatus = "draft";
+
+  // A supplied publishedAt is kept on a draft too, as the date it goes out with.
+  const publishedAt = dates.publishedAt ?? (effectiveStatus === "published" ? now : "");
 
   // Build post
   const post: AgentCMSPost = {
@@ -158,12 +212,14 @@ export async function handlePublish(
     title: data.title,
     description: data.description || generateDescription(data.content),
     content: data.content,
+    contentHtml: data.contentHtml,
     author: agent.name,
     authorType: "agent",
     tags: data.tags,
     category: data.category,
-    publishedAt: effectiveStatus === "published" ? now : "",
-    updatedAt: now,
+    publishedAt,
+    // An imported post was last changed when its source says, not today.
+    updatedAt: dates.updatedAt ?? dates.publishedAt ?? now,
     status: effectiveStatus,
     scheduledFor: data.scheduledFor,
     featuredImage: data.featuredImage,
@@ -188,7 +244,7 @@ export async function handlePublish(
     {
       success: true,
       slug,
-      url: `${siteUrl}/blog/${slug}`,
+      url: `${siteUrl}${options.basePath ?? "/blog"}/${slug}`,
       status: effectiveStatus,
       publishedAt: post.publishedAt || null,
       remainingRequests: remaining,
@@ -305,10 +361,14 @@ export async function handleAgentUpdatePost(
     data.status = "draft";
   }
 
+  const dates = resolveDates(agent.scope, data, existing.publishedAt);
+  if ("error" in dates) return dates.error;
+
   const now = new Date().toISOString();
   const updated: AgentCMSPost = {
     ...existing,
     ...data,
+    publishedAt: dates.publishedAt ?? existing.publishedAt,
     featuredImage:
       data.featuredImage === null
         ? undefined
@@ -324,7 +384,7 @@ export async function handleAgentUpdatePost(
     slug: existing.slug,
     author: existing.author,
     authorType: existing.authorType,
-    updatedAt: now,
+    updatedAt: dates.updatedAt ?? now,
   };
 
   if (data.content) {
@@ -335,7 +395,7 @@ export async function handleAgentUpdatePost(
     }
   }
 
-  if (data.status === "published" && !existing.publishedAt) {
+  if (data.status === "published" && !updated.publishedAt) {
     updated.publishedAt = now;
   }
 
@@ -580,6 +640,18 @@ export async function handleSkill(request: Request): Promise<Response> {
               type: "string",
               description:
                 "Custom URL slug. Auto-generated from title if omitted.",
+            },
+            publishedAt: {
+              type: "string",
+              format: "date-time",
+              description:
+                "Admin keys only. The post's original publish date, when migrating an existing archive. Not in the future. Defaults to now.",
+            },
+            updatedAt: {
+              type: "string",
+              format: "date-time",
+              description:
+                "Admin keys only. The original last-modified date. Defaults to publishedAt when that is given.",
             },
           },
         },
