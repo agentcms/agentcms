@@ -118,10 +118,22 @@ export interface AgentCMSOptions {
   basePath?: string;
   /** Posts per page for auto mode pagination. Default: 12 */
   postsPerPage?: number;
-  /** Generate RSS feed. Default: true */
+  /**
+   * Serve /feed.xml. Default: true. Applies in both modes; ignored when the project has its own
+   * src/pages/feed.xml.* or public/feed.xml.
+   */
   rss?: boolean;
-  /** Generate sitemap.xml. Default: true */
+  /**
+   * Serve /sitemap.xml. Default: true. Applies in both modes — a headless site needs a sitemap
+   * exactly as much as an auto one. Ignored when the project has its own src/pages/sitemap.xml.*
+   * or public/sitemap.xml, which then serves the path instead.
+   */
   sitemap?: boolean;
+  /**
+   * Serve /robots.txt. Default: true. Applies in both modes; ignored when the project has its own
+   * src/pages/robots.txt.* or public/robots.txt.
+   */
+  robots?: boolean;
   /** Additional external sitemaps for robots.txt. */
   additionalSitemaps?: string[];
   /** Serve /.well-known/agent-skill.json. Default: true */
@@ -141,7 +153,10 @@ export interface AgentCMSOptions {
 // --- Sitemap & Robots.txt Options ---
 
 export interface SitemapOptions {
+  /** Blog base path for the post URLs, Astro's `base` included. */
   basePath?: string;
+  /** Append a trailing slash to the post URLs, for a `trailingSlash: "always"` site. */
+  trailingSlash?: boolean;
   staticPages?: Array<{
     loc: string;
     lastmod?: string;
@@ -154,6 +169,10 @@ export interface SitemapOptions {
 export interface RobotsTxtOptions {
   additionalSitemaps?: string[];
   disallow?: string[];
+  /** Emit this site's own `Sitemap:` line. False when nothing serves one. Default: true */
+  includeSitemap?: boolean;
+  /** Path of this site's own sitemap, when it is not /sitemap.xml. */
+  sitemapPath?: string;
 }
 
 // --- Data Helper Options ---
@@ -235,4 +254,41 @@ export interface X402SubmissionRecord {
   submittedAt: string;
   reviewedAt?: string;
   reviewedBy?: string;
+}
+
+/** Config baked into the generated /sitemap.xml route. See createSitemapRoute. */
+export interface SitemapRouteConfig {
+  /**
+   * Blog base path, Astro's `base` INCLUDED — post URLs are built from it, and on a based site an
+   * un-based one lists a 404 for every post.
+   */
+  basePath?: string;
+  /** Astro's `trailingSlash: "always"`, so a listed post URL does not redirect. */
+  trailingSlash?: boolean;
+  /** The project's own indexable pages, so a headless site's sitemap is not just the posts. */
+  staticPages?: SitemapOptions["staticPages"];
+  kvBinding?: string;
+  kvPrefix?: string;
+}
+
+/** Config baked into the generated /feed.xml route. See createFeedRoute. */
+export interface FeedRouteConfig {
+  /** Blog base path, Astro's `base` included — item permalinks are built from it. */
+  basePath?: string;
+  /** Astro's `trailingSlash: "always"`, so an item permalink does not redirect. */
+  trailingSlash?: boolean;
+  kvBinding?: string;
+  kvPrefix?: string;
+  /** Inline site config, used when KV has no config:site key. */
+  site?: AgentCMSSiteConfig;
+}
+
+/** Config baked into the generated /robots.txt route. See createRobotsRoute. */
+export interface RobotsRouteConfig {
+  additionalSitemaps?: string[];
+  disallow?: string[];
+  /** Emit this site's own `Sitemap:` line. False when nothing serves one. Default: true */
+  includeSitemap?: boolean;
+  /** Path of this site's sitemap, base included. Default: "/sitemap.xml" */
+  sitemapPath?: string;
 }

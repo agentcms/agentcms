@@ -33,8 +33,13 @@ That's it. You get:
 - `/blog/[slug]` — individual posts with SEO
 - `/blog/tag/[tag]` — tag pages
 - `/feed.xml` — RSS feed
+- `/sitemap.xml` — sitemap, with the posts and your own pages
+- `/robots.txt` — robots, pointing at the sitemap
 - `/api/agent/*` — write API for agents
 - `/.well-known/agent-skill.json` — skill discovery for AI agents
+
+`/sitemap.xml`, `/robots.txt` and `/feed.xml` are served in **both** modes — see
+[SEO routes](#seo-routes).
 
 ## How Agents Publish
 
@@ -105,6 +110,55 @@ const { posts } = await getAgentCMSPosts({ limit: 10, tag: "ai" });
 
 <BlogList posts={posts} layout="grid" columns={2} />
 ```
+
+Headless mode gives you the blog routes to build. It does **not** take away
+`/sitemap.xml`, `/robots.txt` or `/feed.xml` — see below.
+
+## SEO routes
+
+`/sitemap.xml`, `/robots.txt` and `/feed.xml` are served in both `auto` and
+`headless` mode. Before 0.9.0 they were injected only in `auto` mode while the
+build log announced them in every mode, so headless sites shipped no sitemap and
+the build log said otherwise. Three production sites ran that way for months.
+
+The sitemap lists your own **static** pages as well as the CMS posts. It reads
+them from Astro's resolved routes, so a static page you add appears without
+configuration, with `base` and `trailingSlash` applied.
+
+What it cannot list:
+
+- **Dynamic routes** (`/guides/[slug]`). Astro reports the pattern, never the
+  generated URLs, so there is nothing to put in a `<loc>`. On-demand ones have no
+  fixed set of URLs at all; for **prerendered** ones the build warns you by name,
+  because a sitemap that quietly omits a site's whole content is worse than no
+  sitemap. If that is your shape, write your own `src/pages/sitemap.xml.ts` —
+  you know how to enumerate them and we do not.
+- Individual post URLs (they come from the KV index at request time), `/404`,
+  `/500`, and pages another integration contributed.
+
+There is no `hreflang`/alternates support.
+
+**If you want to own one of these paths**, just create it. A
+`src/pages/sitemap.xml.ts` (`.astro`, `.mdx` and the `sitemap.xml/index.ts`
+directory form count too), a `public/robots.txt`, or a `redirects` entry in
+`astro.config` makes AgentCMS stand down for that path rather than collide with
+you, and the build log says which of the two is serving:
+
+```
+  Sitemap: /sitemap.xml
+  Robots:  /robots.txt (your own — AgentCMS did not inject one)
+  Feed:    /feed.xml
+```
+
+The probe can only see your repo. A Cloudflare zone redirect or a hand-written
+`functions/` handler for one of these paths is invisible to it, so that log line
+states what AgentCMS injected, not a verified fetch.
+
+Switch one off with `sitemap: false`, `robots: false` or `rss: false`. Nothing
+then serves that path, and the build warns you about it for the sitemap — a site
+with no fetchable sitemap is one search engines have to guess at. With
+`sitemap: false`, `robots.txt` stops advertising a `Sitemap:` line rather than
+pointing at a 404.
 
 ## Styling
 
