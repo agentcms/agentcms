@@ -7,7 +7,12 @@
 //
 // ============================================================================
 
-import type { AgentCMSPost, SitemapOptions, RobotsTxtOptions } from "../types.js";
+import type {
+  AgentCMSPost,
+  AgentCMSSiteConfig,
+  SitemapOptions,
+  RobotsTxtOptions,
+} from "../types.js";
 import { getPost, getIndex, getConfig } from "../utils/kv.js";
 import {
   queryPosts,
@@ -24,6 +29,16 @@ export interface AgentCMSEnv {
   AGENTCMS_R2?: R2Bucket;
   /** Optional KV key prefix to isolate data when sharing a namespace. */
   AGENTCMS_PREFIX?: string;
+  /**
+   * Site config to use when KV has none: the Astro integration's inline `site`.
+   * Not a binding; the Astro routes fill it in.
+   */
+  AGENTCMS_SITE?: AgentCMSSiteConfig;
+}
+
+/** The site config: KV's `config:site` when present, else the inline one. */
+export async function siteConfig(env: AgentCMSEnv): Promise<AgentCMSSiteConfig | null> {
+  return (await getConfig(env.AGENTCMS_KV, env.AGENTCMS_PREFIX)) ?? env.AGENTCMS_SITE ?? null;
 }
 
 function json(data: unknown, status = 200): Response {
@@ -91,8 +106,7 @@ export async function handleListPosts(
 
 /** The site's default language (see defaultLanguage). */
 async function siteLanguage(env: AgentCMSEnv): Promise<string> {
-  const config = await getConfig(env.AGENTCMS_KV, env.AGENTCMS_PREFIX);
-  return defaultLanguage(config);
+  return defaultLanguage(await siteConfig(env));
 }
 
 /**

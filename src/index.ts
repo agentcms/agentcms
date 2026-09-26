@@ -185,7 +185,7 @@ export async function getAgentCMSTranslations(
 ): Promise<Array<{ lang: string; slug: string; title: string }>> {
   const kv = await getKV();
   const prefix = await getKvPrefix();
-  const config = (await queryConfig(kv, prefix)) ?? globalThis.__AGENTCMS_CONFIG__?.site;
+  const config = await getAgentCMSConfig();
   return queryTranslations(kv, translationKey, prefix, defaultLanguage(config));
 }
 
@@ -194,7 +194,8 @@ export async function getAgentCMSTranslations(
  */
 export async function getAgentCMSConfig(): Promise<AgentCMSSiteConfig | null> {
   const kv = await getKV();
-  return queryConfig(kv, await getKvPrefix());
+  // KV wins; the integration's inline `site` is the fallback, as for the API.
+  return (await queryConfig(kv, await getKvPrefix())) ?? globalThis.__AGENTCMS_CONFIG__?.site ?? null;
 }
 
 // --- Global config type (set by integration via injectScript) ---

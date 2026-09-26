@@ -83,6 +83,7 @@ function kvFetcher(): Fetcher {
     const handlerEnv: AgentCMSEnv = {
       AGENTCMS_KV: kv,
       AGENTCMS_PREFIX: (bindings.AGENTCMS_PREFIX as string | undefined) ?? config?.kvPrefix,
+      AGENTCMS_SITE: config?.site,
     };
     const request = new Request(`https://agentcms.internal${path}`);
     const url = new URL(request.url);

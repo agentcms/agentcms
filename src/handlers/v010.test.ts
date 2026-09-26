@@ -304,3 +304,34 @@ describe("detectProjectApiRoutes", () => {
     expect([...owned].sort()).toEqual(["posts", "tags"]);
   });
 });
+
+describe("review fixes", () => {
+  it("the inline site config drives the language rules when KV has none", async () => {
+    const inline = { ...env, AGENTCMS_SITE: { name: "Inline", language: "de", languages: ["de", "en"] } as never };
+    const pub = (body: Record<string, unknown>) =>
+      handlePublish(req("POST", "/api/agent/publish", "pub", body), inline);
+    expect((await pub({ title: "Bonjour monde", content: BODY, lang: "fr" })).status).toBe(422);
+    await pub({ title: "Hallo Welt", slug: "hallo", content: BODY, translationKey: "hello" });
+    // No lang means the inline default, de, so a second de version clashes.
+    expect((await pub({ title: "Hallo nochmal", slug: "hallo-2", content: BODY, lang: "de", translationKey: "hello" })).status).toBe(409);
+    const listed = await read(handleListPosts(req("GET", "/api/posts?lang=de"), inline));
+    expect(listed.posts.map((p: { slug: string }) => p.slug)).toEqual(["hallo"]);
+  });
+
+  it("a draft may share a published post's language; the clash applies on publishing it", async () => {
+    await publish({ title: "Hallo Welt", slug: "hallo", content: BODY, lang: "de", translationKey: "hello" });
+    expect((await publish({ title: "Hallo neu", slug: "hallo-neu", content: BODY, lang: "de", translationKey: "hello", status: "draft" })).status).toBe(201);
+    expect((await update("hallo-neu", { status: "published" })).status).toBe(409);
+    // Taking the old one down is never blocked, and then the new one can go out.
+    expect((await update("hallo", { status: "draft" })).status).toBe(200);
+    expect((await update("hallo-neu", { status: "published" })).status).toBe(200);
+  });
+
+  it("generated API entries re-export the route and install the config", async () => {
+    const { renderApiRouteModule } = await import("../integration/index.js");
+    const mod = renderApiRouteModule("@agentcms/agentcms/routes/api/publish.ts", { basePath: "/news", site: { name: "X" } });
+    expect(mod).toContain('export * from "@agentcms/agentcms/routes/api/publish.ts";');
+    expect(mod).toContain("globalThis.__AGENTCMS_CONFIG__ ??=");
+    expect(mod).toContain('"basePath": "/news"');
+  });
+});

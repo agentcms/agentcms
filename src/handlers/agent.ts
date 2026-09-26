@@ -23,7 +23,6 @@ import {
   deletePost,
   updateIndex,
   getIndex,
-  getConfig,
 } from "../utils/kv.js";
 import {
   slugify,
@@ -32,7 +31,7 @@ import {
 } from "../utils/content.js";
 import { sendWebhook } from "../utils/webhook.js";
 import { defaultLanguage } from "../utils/query.js";
-import type { AgentCMSEnv } from "./public.js";
+import { siteConfig, type AgentCMSEnv } from "./public.js";
 
 // --- Schemas ---
 
@@ -126,17 +125,21 @@ function notify(options: HandlerOptions, delivery: Promise<unknown>): void {
 /**
  * A post's language must be one the site publishes in (when the site lists
  * them), and an article has at most one published post per language — two
- * would leave hreflang and a language switcher pointing at either.
+ * would leave hreflang and a language switcher pointing at either. Only a
+ * post that will be public can clash: a draft never reaches the index, so a
+ * replacement can be drafted, and a clashing post can be taken down.
  */
 async function checkLanguage(
-  kv: KVNamespace,
-  pfx: string | undefined,
+  env: AgentCMSEnv,
   slug: string,
   lang: string | undefined,
-  translationKey: string | undefined
+  translationKey: string | undefined,
+  willBePublic: boolean
 ): Promise<Response | null> {
   if (!lang && !translationKey) return null;
-  const config = await getConfig(kv, pfx);
+  const kv = env.AGENTCMS_KV;
+  const pfx = env.AGENTCMS_PREFIX;
+  const config = await siteConfig(env);
   const languages = config?.languages;
   if (lang && languages?.length && !languages.includes(lang)) {
     return json(
@@ -144,7 +147,7 @@ async function checkLanguage(
       422
     );
   }
-  if (translationKey) {
+  if (translationKey && willBePublic) {
     const defaultLang = defaultLanguage(config);
     const mine = lang ?? defaultLang;
     const index = await getIndex(kv, pfx);
@@ -291,12 +294,18 @@ export async function handlePublish(
   const dates = resolveDates(agent.scope, data);
   if ("error" in dates) return dates.error;
 
-  const languageError = await checkLanguage(kv, pfx, slug, data.lang, data.translationKey);
-  if (languageError) return languageError;
-
   // Determine effective status
   let effectiveStatus = data.status;
   if (agent.scope === "draft-only") effectiveStatus = "draft";
+
+  const languageError = await checkLanguage(
+    env,
+    slug,
+    data.lang,
+    data.translationKey,
+    effectiveStatus !== "draft"
+  );
+  if (languageError) return languageError;
 
   // A supplied publishedAt is kept on a draft too, as the date it goes out with.
   const publishedAt = dates.publishedAt ?? (effectiveStatus === "published" ? now : "");
@@ -384,8 +393,7 @@ export async function handleAgentListPosts(
   if (tag) posts = posts.filter((p) => p.tags.includes(tag));
   if (category) posts = posts.filter((p) => p.category === category);
   if (lang) {
-    const config = await getConfig(kv, pfx);
-    const defaultLang = defaultLanguage(config);
+    const defaultLang = defaultLanguage(await siteConfig(env));
     posts = posts.filter((p) => (p.lang ?? defaultLang) === lang);
   }
   if (translationKey) posts = posts.filter((p) => p.translationKey === translationKey);
@@ -514,11 +522,11 @@ export async function handleAgentUpdatePost(
   }
 
   const languageError = await checkLanguage(
-    kv,
-    pfx,
+    env,
     updated.slug,
     updated.lang,
-    updated.translationKey
+    updated.translationKey,
+    updated.status !== "draft"
   );
   if (languageError) return languageError;
 
@@ -595,7 +603,7 @@ export async function handleAgentContext(
   const agent = await validateApiKey(kv, request.headers.get("Authorization"), pfx);
   if (!agent) return json({ error: "Invalid or missing API key" }, 401);
 
-  const config = (await getConfig(kv, pfx)) ?? options.site ?? null;
+  const config = (await siteConfig(env)) ?? options.site ?? null;
   const index = await getIndex(kv, pfx);
   const recentPosts = index.posts.slice(0, 15);
 

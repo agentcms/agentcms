@@ -23,6 +23,7 @@ export function agentcmsEnv(): AgentCMSEnv {
     // API endpoints don't get the integration's page-ssr global, so prefer the env var
     // (set via wrangler [vars] AGENTCMS_PREFIX); fall back to the global for the option-only case.
     AGENTCMS_PREFIX: (bindings.AGENTCMS_PREFIX as string | undefined) ?? config?.kvPrefix,
+    AGENTCMS_SITE: config?.site,
   };
 }
 
