@@ -84,7 +84,14 @@ import type {
 } from "./types.js";
 import { getPost } from "./utils/kv.js";
 import { toSafePost, toSafeListPost } from "./utils/sanitize.js";
-import { queryPosts, queryTags, queryCategories, queryConfig } from "./utils/query.js";
+import {
+  queryPosts,
+  queryTags,
+  queryCategories,
+  queryConfig,
+  queryTranslations,
+  defaultLanguage,
+} from "./utils/query.js";
 
 /**
  * Get the KV namespace binding.
@@ -166,6 +173,20 @@ export async function getAgentCMSCategories(): Promise<
 > {
   const kv = await getKV();
   return queryCategories(kv, await getKvPrefix());
+}
+
+/**
+ * The published language versions of an article (every post sharing its
+ * `translationKey`), for a language switcher and hreflang links. Posts with
+ * no `lang` count as the site's default language.
+ */
+export async function getAgentCMSTranslations(
+  translationKey: string
+): Promise<Array<{ lang: string; slug: string; title: string }>> {
+  const kv = await getKV();
+  const prefix = await getKvPrefix();
+  const config = (await queryConfig(kv, prefix)) ?? globalThis.__AGENTCMS_CONFIG__?.site;
+  return queryTranslations(kv, translationKey, prefix, defaultLanguage(config));
 }
 
 /**

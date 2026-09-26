@@ -152,6 +152,35 @@ const SEO_ROUTES: Record<SeoRouteKind, SeoRouteSpec> = {
  * What it cannot see: a Cloudflare zone redirect, a bulk redirect, or a hand-written `functions/`
  * handler. Those live outside the repo, so the log line states our intent, not a verified fetch.
  */
+export type PublicApiRoute = "posts" | "tags" | "categories";
+
+/**
+ * Which of the public read routes (/api/posts, /api/tags, /api/categories) the project
+ * serves itself. Conservative: any page file or directory under `src/pages/api/<name>`
+ * counts, whatever its param is called, because an injected `/api/posts/[slug]` beside
+ * the project's `/api/posts/[id].ts` would make Astro pick one of the two.
+ */
+export async function detectProjectApiRoutes(
+  srcDir: URL | string | undefined,
+  existsSync?: (path: string) => boolean
+): Promise<Set<PublicApiRoute>> {
+  const owned = new Set<PublicApiRoute>();
+  if (!srcDir) return owned;
+  try {
+    const path = await import("node:path");
+    const url = await import("node:url");
+    const exists = existsSync ?? (await import("node:fs")).existsSync;
+    const apiDir = path.join(typeof srcDir === "string" ? srcDir : url.fileURLToPath(srcDir), "pages", "api");
+    for (const name of ["posts", "tags", "categories"] as const) {
+      const candidates = [path.join(apiDir, name), ...pageCandidates(name).map((f) => path.join(apiDir, f))];
+      if (candidates.some((c) => exists(c))) owned.add(name);
+    }
+  } catch {
+    // No node:fs: inject, and let Astro report a collision rather than serve nothing.
+  }
+  return owned;
+}
+
 export async function detectProjectSeoRoutes(
   dirs: {
     srcDir?: URL | string;
@@ -433,6 +462,7 @@ export default function agentcms(
     robots = true,
     additionalSitemaps,
     skillEndpoint = true,
+    publicApi = true,
     theme = "default",
     kvBinding = "AGENTCMS_KV",
     r2Binding = "AGENTCMS_R2",
@@ -503,6 +533,44 @@ export default function agentcms(
           pattern: "/api/agent/upload",
           entrypoint: "@agentcms/agentcms/routes/api/upload.ts",
         });
+
+        // ---------------------------------------------------------------
+        // Public read API — the JSON a static frontend, an app or another
+        // site's live loader reads. Skipped per path the project owns.
+        // ---------------------------------------------------------------
+        if (publicApi) {
+          const owned = await detectProjectApiRoutes(config.srcDir);
+          const injected: string[] = [];
+          if (!owned.has("posts")) {
+            injectRoute({
+              pattern: "/api/posts",
+              entrypoint: "@agentcms/agentcms/routes/api/public-posts.ts",
+            });
+            injectRoute({
+              pattern: "/api/posts/[slug]",
+              entrypoint: "@agentcms/agentcms/routes/api/public-post.ts",
+            });
+            injected.push("/api/posts", "/api/posts/[slug]");
+          }
+          if (!owned.has("tags")) {
+            injectRoute({
+              pattern: "/api/tags",
+              entrypoint: "@agentcms/agentcms/routes/api/public-tags.ts",
+            });
+            injected.push("/api/tags");
+          }
+          if (!owned.has("categories")) {
+            injectRoute({
+              pattern: "/api/categories",
+              entrypoint: "@agentcms/agentcms/routes/api/public-categories.ts",
+            });
+            injected.push("/api/categories");
+          }
+          if (injected.length) logger.info(`Public API: ${injected.join(", ")}`);
+          if (owned.size) {
+            logger.info(`Public API: the project serves /api/${[...owned].join(", /api/")} itself`);
+          }
+        }
 
         // ---------------------------------------------------------------
         // Always inject: Image serving from R2

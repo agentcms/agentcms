@@ -4,9 +4,10 @@
 
 import type { APIRoute } from "astro";
 import { handlePublish } from "../../handlers/agent.js";
-import { agentcmsEnv } from "./_env.js";
+import { agentcmsEnv, handlerOptions, purgeAfterWrite } from "./_env.js";
 
-export const POST: APIRoute = ({ request }) =>
-  handlePublish(request, agentcmsEnv(), {
-    basePath: globalThis.__AGENTCMS_CONFIG__?.basePath || "/blog",
-  });
+export const POST: APIRoute = async (context) =>
+  purgeAfterWrite(
+    context,
+    await handlePublish(context.request, agentcmsEnv(), handlerOptions())
+  );

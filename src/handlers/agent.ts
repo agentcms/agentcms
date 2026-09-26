@@ -3,12 +3,18 @@
 // ============================================================================
 //
 // Framework-agnostic HTTP handlers for AI agent operations.
-// Same logic as src/routes/api/*.ts but without Astro types or cloudflare:workers.
+// The one implementation of each endpoint: the Astro routes, the Pages middleware
+// and the Worker entry all call these. No Astro types or cloudflare:workers here.
 //
 // ============================================================================
 
 import { z } from "zod";
-import type { AgentCMSPost, AgentKeyScope, AgentSkillDefinition } from "../types.js";
+import type {
+  AgentCMSPost,
+  AgentCMSSiteConfig,
+  AgentKeyScope,
+  AgentSkillDefinition,
+} from "../types.js";
 import {
   validateApiKey,
   checkRateLimit,
@@ -25,9 +31,29 @@ import {
   generateDescription,
 } from "../utils/content.js";
 import { sendWebhook } from "../utils/webhook.js";
+import { defaultLanguage } from "../utils/query.js";
 import type { AgentCMSEnv } from "./public.js";
 
 // --- Schemas ---
+
+// Absolute http(s) only: these are rendered into src/href attributes and og: tags.
+const httpUrl = z
+  .string()
+  .url()
+  .refine((u) => /^https?:\/\//i.test(u), { message: "must be an http(s) URL" });
+
+/** A BCP 47 language tag, loosely: en, de, pt-BR, zh-Hant. */
+const LANG = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
+const langField = z.string().regex(LANG, "must be a language tag like en, de or pt-BR");
+const translationKeyField = z.string().regex(/^[a-z0-9-]+$/).max(80);
+
+/** Site data (e.g. towns, events), stored as-is and never rendered by AgentCMS. */
+const METADATA_MAX_BYTES = 16 * 1024;
+const metadataField = z
+  .record(z.string(), z.unknown())
+  .refine((m) => JSON.stringify(m).length <= METADATA_MAX_BYTES, {
+    message: `metadata must be at most ${METADATA_MAX_BYTES} bytes as JSON`,
+  });
 
 const PublishSchema = z.object({
   title: z.string().min(5).max(200),
@@ -38,7 +64,8 @@ const PublishSchema = z.object({
   category: z.string().optional(),
   status: z.enum(["published", "draft", "scheduled"]).default("published"),
   scheduledFor: z.string().datetime().optional(),
-  featuredImage: z.string().url().optional(),
+  featuredImage: httpUrl.optional(),
+  ogImage: httpUrl.optional(),
   slug: z
     .string()
     .regex(/^[a-z0-9-]+$/)
@@ -46,7 +73,10 @@ const PublishSchema = z.object({
     .optional(),
   featured: z.boolean().default(false),
   noindex: z.boolean().default(false),
-  canonicalUrl: z.string().url().optional(),
+  canonicalUrl: httpUrl.optional(),
+  lang: langField.optional(),
+  translationKey: translationKeyField.optional(),
+  metadata: metadataField.optional(),
   // Original dates, for migrating an existing archive (admin keys only).
   publishedAt: z.string().datetime({ offset: true }).optional(),
   updatedAt: z.string().datetime({ offset: true }).optional(),
@@ -61,16 +91,78 @@ const UpdateSchema = z.object({
   category: z.string().optional(),
   status: z.enum(["published", "draft", "scheduled"]).optional(),
   scheduledFor: z.string().datetime().optional(),
-  featuredImage: z.string().url().optional().nullable(),
-  ogImage: z.string().url().optional().nullable(),
+  featuredImage: httpUrl.optional().nullable(),
+  ogImage: httpUrl.optional().nullable(),
   featured: z.boolean().optional(),
   noindex: z.boolean().optional(),
-  canonicalUrl: z.string().url().optional().nullable(),
+  canonicalUrl: httpUrl.optional().nullable(),
+  lang: langField.optional().nullable(),
+  translationKey: translationKeyField.optional().nullable(),
+  metadata: metadataField.optional(),
   publishedAt: z.string().datetime({ offset: true }).optional(),
   updatedAt: z.string().datetime({ offset: true }).optional(),
 });
 
 // --- Helpers ---
+
+/** Options every write handler takes from its host (Astro route, Pages middleware, Worker). */
+export interface HandlerOptions {
+  /** Base path of post pages, for the URL publish returns. Default "/blog". */
+  basePath?: string;
+  /**
+   * Keeps work alive after the response is sent — `ctx.waitUntil` on Workers
+   * and Pages Functions. Without it the runtime may cancel the webhook fetch
+   * (e.g. a static site's deploy hook) as soon as the response goes out.
+   */
+  waitUntil?: (promise: Promise<unknown>) => void;
+}
+
+/** Fire a webhook without delaying the response, and without it being cancelled. */
+function notify(options: HandlerOptions, delivery: Promise<unknown>): void {
+  const settled = delivery.catch(() => {});
+  options.waitUntil?.(settled);
+}
+
+/**
+ * A post's language must be one the site publishes in (when the site lists
+ * them), and an article has at most one published post per language — two
+ * would leave hreflang and a language switcher pointing at either.
+ */
+async function checkLanguage(
+  kv: KVNamespace,
+  pfx: string | undefined,
+  slug: string,
+  lang: string | undefined,
+  translationKey: string | undefined
+): Promise<Response | null> {
+  if (!lang && !translationKey) return null;
+  const config = await getConfig(kv, pfx);
+  const languages = config?.languages;
+  if (lang && languages?.length && !languages.includes(lang)) {
+    return json(
+      { error: `lang "${lang}" is not one of this site's languages: ${languages.join(", ")}` },
+      422
+    );
+  }
+  if (translationKey) {
+    const defaultLang = defaultLanguage(config);
+    const mine = lang ?? defaultLang;
+    const index = await getIndex(kv, pfx);
+    const clash = index.posts.find(
+      (p) =>
+        p.slug !== slug &&
+        p.translationKey === translationKey &&
+        (p.lang ?? defaultLang) === mine
+    );
+    if (clash) {
+      return json(
+        { error: "This article already has a published post in that language", slug: clash.slug },
+        409
+      );
+    }
+  }
+  return null;
+}
 
 /** Allowed clock skew when checking that a supplied date is not in the future. */
 const CLOCK_SKEW_MS = 60_000;
@@ -157,7 +249,7 @@ async function shortHash(buffer: ArrayBuffer): Promise<string> {
 export async function handlePublish(
   request: Request,
   env: AgentCMSEnv,
-  options: { basePath?: string } = {}
+  options: HandlerOptions = {}
 ): Promise<Response> {
   const kv = env.AGENTCMS_KV;
   const pfx = env.AGENTCMS_PREFIX;
@@ -199,6 +291,9 @@ export async function handlePublish(
   const dates = resolveDates(agent.scope, data);
   if ("error" in dates) return dates.error;
 
+  const languageError = await checkLanguage(kv, pfx, slug, data.lang, data.translationKey);
+  if (languageError) return languageError;
+
   // Determine effective status
   let effectiveStatus = data.status;
   if (agent.scope === "draft-only") effectiveStatus = "draft";
@@ -223,11 +318,14 @@ export async function handlePublish(
     status: effectiveStatus,
     scheduledFor: data.scheduledFor,
     featuredImage: data.featuredImage,
+    ogImage: data.ogImage,
     readingTime: calculateReadingTime(data.content),
     featured: data.featured,
     noindex: data.noindex,
     canonicalUrl: data.canonicalUrl,
-    metadata: {},
+    lang: data.lang,
+    translationKey: data.translationKey,
+    metadata: data.metadata ?? {},
     agentMetadata: {
       model: request.headers.get("X-Agent-Model") || "unknown",
       generatedAt: now,
@@ -238,7 +336,7 @@ export async function handlePublish(
   if (effectiveStatus === "published") await updateIndex(kv, post, "upsert", pfx);
 
   const siteUrl = new URL(request.url).origin;
-  sendWebhook(kv, "post.published", post, siteUrl, pfx).catch(() => {});
+  notify(options, sendWebhook(kv, "post.published", post, siteUrl, pfx));
 
   return json(
     {
@@ -277,12 +375,20 @@ export async function handleAgentListPosts(
   );
   const tag = url.searchParams.get("tag") || undefined;
   const category = url.searchParams.get("category") || undefined;
+  const lang = url.searchParams.get("lang") || undefined;
+  const translationKey = url.searchParams.get("translationKey") || undefined;
 
   const index = await getIndex(kv, pfx);
   let posts = index.posts;
 
   if (tag) posts = posts.filter((p) => p.tags.includes(tag));
   if (category) posts = posts.filter((p) => p.category === category);
+  if (lang) {
+    const config = await getConfig(kv, pfx);
+    const defaultLang = defaultLanguage(config);
+    posts = posts.filter((p) => (p.lang ?? defaultLang) === lang);
+  }
+  if (translationKey) posts = posts.filter((p) => p.translationKey === translationKey);
 
   const total = posts.length;
   const page = posts.slice(offset, offset + limit);
@@ -319,7 +425,8 @@ export async function handleAgentGetPost(
 export async function handleAgentUpdatePost(
   request: Request,
   env: AgentCMSEnv,
-  slug: string
+  slug: string,
+  options: HandlerOptions = {}
 ): Promise<Response> {
   if (!isValidSlug(slug)) return json({ error: "Invalid slug" }, 400);
 
@@ -381,6 +488,13 @@ export async function handleAgentUpdatePost(
       data.canonicalUrl === null
         ? undefined
         : (data.canonicalUrl ?? existing.canonicalUrl),
+    lang: data.lang === null ? undefined : (data.lang ?? existing.lang),
+    translationKey:
+      data.translationKey === null
+        ? undefined
+        : (data.translationKey ?? existing.translationKey),
+    // Replaced as a whole when given: a partial merge could not remove a key.
+    metadata: data.metadata ?? existing.metadata ?? {},
     slug: existing.slug,
     author: existing.author,
     authorType: existing.authorType,
@@ -399,11 +513,20 @@ export async function handleAgentUpdatePost(
     updated.publishedAt = now;
   }
 
+  const languageError = await checkLanguage(
+    kv,
+    pfx,
+    updated.slug,
+    updated.lang,
+    updated.translationKey
+  );
+  if (languageError) return languageError;
+
   await putPost(kv, updated, pfx);
   await updateIndex(kv, updated, "upsert", pfx);
 
   const siteUrl = new URL(request.url).origin;
-  sendWebhook(kv, "post.updated", updated, siteUrl, pfx).catch(() => {});
+  notify(options, sendWebhook(kv, "post.updated", updated, siteUrl, pfx));
 
   return json({
     success: true,
@@ -419,7 +542,8 @@ export async function handleAgentUpdatePost(
 export async function handleAgentDeletePost(
   request: Request,
   env: AgentCMSEnv,
-  slug: string
+  slug: string,
+  options: HandlerOptions = {}
 ): Promise<Response> {
   if (!isValidSlug(slug)) return json({ error: "Invalid slug" }, 400);
 
@@ -442,7 +566,7 @@ export async function handleAgentDeletePost(
   await updateIndex(kv, existing, "remove", pfx);
 
   const siteUrl = new URL(request.url).origin;
-  sendWebhook(kv, "post.deleted", existing, siteUrl, pfx).catch(() => {});
+  notify(options, sendWebhook(kv, "post.deleted", existing, siteUrl, pfx));
 
   return json({
     success: true,
@@ -454,9 +578,16 @@ export async function handleAgentDeletePost(
 /**
  * GET /api/agent/context — Site context for agents to understand before writing.
  */
+export interface ContextOptions {
+  /** Site config to use when KV has none (the integration's inline `site`). */
+  site?: AgentCMSSiteConfig;
+}
+
+/** GET /api/agent/context handler. */
 export async function handleAgentContext(
   request: Request,
-  env: AgentCMSEnv
+  env: AgentCMSEnv,
+  options: ContextOptions = {}
 ): Promise<Response> {
   const kv = env.AGENTCMS_KV;
   const pfx = env.AGENTCMS_PREFIX;
@@ -464,7 +595,7 @@ export async function handleAgentContext(
   const agent = await validateApiKey(kv, request.headers.get("Authorization"), pfx);
   if (!agent) return json({ error: "Invalid or missing API key" }, 401);
 
-  const config = await getConfig(kv, pfx);
+  const config = (await getConfig(kv, pfx)) ?? options.site ?? null;
   const index = await getIndex(kv, pfx);
   const recentPosts = index.posts.slice(0, 15);
 
@@ -478,7 +609,9 @@ export async function handleAgentContext(
       name: config?.name || "Blog",
       description: config?.description || "",
       url: new URL(request.url).origin,
-      language: config?.language || "en",
+      language: defaultLanguage(config),
+      // Every language the site publishes in; empty when it has only one.
+      languages: config?.languages ?? [],
     },
     writingGuidelines: config?.writingGuidelines || {
       tone: "informative and engaging",
@@ -492,7 +625,8 @@ export async function handleAgentContext(
       existingCategories: allCategories,
     },
     capabilities: {
-      maxContentLength: 50000,
+      maxContentLength: 200_000,
+      metadataMaxBytes: METADATA_MAX_BYTES,
       markdownFeatures: ["GFM", "code-blocks", "tables", "footnotes"],
     },
     agent: {
@@ -563,7 +697,9 @@ export async function handleAgentUpload(
   return json(
     {
       success: true,
-      url: `/images/${key}`,
+      // Absolute, so it passes as featuredImage/ogImage as well as in markdown.
+      url: `${new URL(request.url).origin}/images/${key}`,
+      path: `/images/${key}`,
       contentType: file.type,
       size: file.size,
       remainingRequests: remaining,
@@ -603,7 +739,7 @@ export async function handleSkill(request: Request): Promise<Response> {
         method: "GET",
         path: "/api/agent/posts",
         description:
-          "List existing posts. Check before writing to avoid duplicates. Query params: limit, offset, tag, category.",
+          "List existing posts. Check before writing to avoid duplicates. Query params: limit, offset, tag, category, lang, translationKey.",
       },
       {
         name: "publish_post",
@@ -653,6 +789,26 @@ export async function handleSkill(request: Request): Promise<Response> {
               description:
                 "Admin keys only. The original last-modified date. Defaults to publishedAt when that is given.",
             },
+            lang: {
+              type: "string",
+              description:
+                "Language tag (en, de, pt-BR). Must be one of the site's languages from get_site_context when it lists any. Defaults to the site language.",
+            },
+            translationKey: {
+              type: "string",
+              description:
+                "Links language versions of one article: give every translation the same key (lowercase, digits, hyphens). At most one published post per language per key.",
+            },
+            featuredImage: { type: "string", format: "uri", description: "Absolute http(s) URL, e.g. from upload_image" },
+            ogImage: { type: "string", format: "uri", description: "Social card image, absolute http(s) URL. Defaults to featuredImage." },
+            canonicalUrl: { type: "string", format: "uri", description: "When the article first appeared elsewhere" },
+            noindex: { type: "boolean", description: "Keep out of search engines and the sitemap" },
+            metadata: {
+              type: "object",
+              description:
+                "Free-form JSON for the site's own use (source ids, sponsor, reading level). Max 16KB. Stored and returned, never rendered.",
+            },
+
           },
         },
         output: {
@@ -665,7 +821,7 @@ export async function handleSkill(request: Request): Promise<Response> {
         },
         errors: [
           { code: 401, description: "Invalid or missing API key" },
-          { code: 409, description: "Slug already exists" },
+          { code: 409, description: "Slug already exists, or this translationKey already has a post in that language" },
           { code: 422, description: "Validation failed" },
           { code: 429, description: "Rate limit exceeded" },
         ],
@@ -681,7 +837,7 @@ export async function handleSkill(request: Request): Promise<Response> {
         method: "PUT",
         path: "/api/agent/posts/{slug}",
         description:
-          "Update an existing post. Partial updates — only include fields to change.",
+          "Update an existing post. Partial updates — only include fields to change. Send null for featuredImage, ogImage, canonicalUrl, lang or translationKey to clear it; metadata is replaced as a whole.",
       },
       {
         name: "delete_post",
@@ -712,7 +868,11 @@ export async function handleSkill(request: Request): Promise<Response> {
             success: { type: "boolean" },
             url: {
               type: "string",
-              description: "Relative URL path like /images/{key}",
+              description: "Absolute image URL, usable as featuredImage, ogImage or in markdown",
+            },
+            path: {
+              type: "string",
+              description: "The same image as a site-relative path, /images/{key}",
             },
             contentType: { type: "string" },
             size: { type: "number" },
@@ -769,6 +929,7 @@ export async function handleSkill(request: Request): Promise<Response> {
         "Provide a custom description for better SEO",
         "Set X-Agent-Model header for traceability",
         "Upload images before publishing, then reference the returned URL",
+        "On a multilingual site, publish each translation as its own post with the same translationKey",
       ],
     },
   };

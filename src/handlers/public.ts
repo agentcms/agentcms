@@ -8,8 +8,14 @@
 // ============================================================================
 
 import type { AgentCMSPost, SitemapOptions, RobotsTxtOptions } from "../types.js";
-import { getPost, getIndex } from "../utils/kv.js";
-import { queryPosts, queryTags, queryCategories } from "../utils/query.js";
+import { getPost, getIndex, getConfig } from "../utils/kv.js";
+import {
+  queryPosts,
+  queryTags,
+  queryCategories,
+  queryTranslations,
+  defaultLanguage,
+} from "../utils/query.js";
 import { generateSitemapXml, generateRobotsTxt } from "../utils/sitemap.js";
 import { toSafePost, toSafeListPost } from "../utils/sanitize.js";
 
@@ -33,7 +39,12 @@ function json(data: unknown, status = 200): Response {
 /**
  * GET /api/posts — List published posts with pagination and filtering.
  *
- * Query params: page, limit, tag, category, featured, author, authorType
+ * Query params: page, limit, tag, category, featured, author, authorType,
+ * lang, translationKey, since (ISO 8601, on updatedAt), full.
+ *
+ * `full=1` renders every post's `contentHtml` (sanitized), for consumers that
+ * build pages from this list — a static site pulling its articles at build
+ * time. Without it, `contentHtml` is present only where it was stored.
  */
 export async function handleListPosts(
   request: Request,
@@ -49,6 +60,14 @@ export async function handleListPosts(
   const author = url.searchParams.get("author") || undefined;
   const authorTypeParam = url.searchParams.get("authorType");
   const authorType = authorTypeParam === "agent" || authorTypeParam === "human" ? authorTypeParam : undefined;
+  const lang = url.searchParams.get("lang") || undefined;
+  const translationKey = url.searchParams.get("translationKey") || undefined;
+  const since = url.searchParams.get("since") || undefined;
+  if (since && Number.isNaN(Date.parse(since))) {
+    return json({ error: "since must be an ISO 8601 date-time" }, 400);
+  }
+  const full = ["1", "true"].includes(url.searchParams.get("full") ?? "");
+  const defaultLang = lang ? await siteLanguage(env) : undefined;
 
   const result = await queryPosts(env.AGENTCMS_KV, {
     page,
@@ -58,9 +77,22 @@ export async function handleListPosts(
     featured,
     author,
     authorType,
+    lang,
+    defaultLang,
+    translationKey,
+    since,
   }, env.AGENTCMS_PREFIX);
 
-  return json({ ...result, posts: result.posts.map(toSafeListPost) });
+  const posts = full
+    ? await Promise.all(result.posts.map((p) => toSafePost(p)))
+    : result.posts.map(toSafeListPost);
+  return json({ ...result, posts });
+}
+
+/** The site's default language (see defaultLanguage). */
+async function siteLanguage(env: AgentCMSEnv): Promise<string> {
+  const config = await getConfig(env.AGENTCMS_KV, env.AGENTCMS_PREFIX);
+  return defaultLanguage(config);
 }
 
 /**
@@ -74,6 +106,10 @@ export async function handleGetPost(
   env: AgentCMSEnv,
   slug: string
 ): Promise<Response> {
+  // A slug is [a-z0-9-]; anything else ("draft:x", "index") would address another KV key.
+  if (!/^[a-z0-9-]{1,80}$/.test(slug)) {
+    return json({ error: "Post not found" }, 404);
+  }
   const post = await getPost(env.AGENTCMS_KV, slug, env.AGENTCMS_PREFIX);
   if (!post) {
     return json({ error: "Post not found" }, 404);
@@ -82,7 +118,16 @@ export async function handleGetPost(
     return json({ error: "Post not found" }, 404);
   }
 
-  return json(await toSafePost(post));
+  // The article's other language versions, for a switcher and hreflang.
+  const translations = post.translationKey
+    ? await queryTranslations(
+        env.AGENTCMS_KV,
+        post.translationKey,
+        env.AGENTCMS_PREFIX,
+        await siteLanguage(env)
+      )
+    : [];
+  return json({ ...(await toSafePost(post)), translations });
 }
 
 /**
@@ -142,6 +187,33 @@ export async function handleRobotsTxt(
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "public, max-age=3600",
+    },
+  });
+}
+
+/**
+ * GET /images/:key — Serve an uploaded image from R2.
+ *
+ * Only keys of the shape upload writes ({8 hex}-{sanitized name}) are read, so
+ * this can't be pointed at anything else in the bucket.
+ */
+export async function handleImage(
+  _request: Request,
+  env: AgentCMSEnv,
+  key: string
+): Promise<Response> {
+  const r2 = env.AGENTCMS_R2;
+  if (!r2) return new Response("Image storage not configured", { status: 500 });
+  if (key.length > 120 || !/^[a-f0-9]{8}-[a-z0-9._-]+$/i.test(key) || key.includes("..")) {
+    return new Response("Not found", { status: 404 });
+  }
+  const object = await r2.get(key);
+  if (!object) return new Response("Not found", { status: 404 });
+  return new Response(object.body as ReadableStream, {
+    headers: {
+      "Content-Type": object.httpMetadata?.contentType || "application/octet-stream",
+      "Cache-Control": "public, max-age=31536000, immutable",
+      ETag: object.httpEtag,
     },
   });
 }

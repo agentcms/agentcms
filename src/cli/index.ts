@@ -12,7 +12,7 @@
 
 import { readFileSync } from "node:fs";
 import { generateApiKey, slugify, calculateReadingTime, generateDescription } from "../utils/content.js";
-import { hashApiKey, KEYS, kvKeys } from "../utils/kv.js";
+import { hashApiKey, KEYS, kvKeys, toIndexEntry } from "../utils/kv.js";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -166,18 +166,7 @@ async function runMigrate() {
 
   // Build index
   const indexEntry = {
-    posts: validPosts.map((post) => ({
-      slug: post.slug,
-      title: post.title,
-      description: post.description,
-      publishedAt: post.publishedAt,
-      tags: post.tags,
-      category: post.category,
-      author: post.author,
-      authorType: post.authorType,
-      featuredImage: post.featuredImage,
-      featured: post.featured,
-    })),
+    posts: validPosts.map(toIndexEntry),
     totalCount: validPosts.length,
     lastUpdated: new Date().toISOString(),
   };

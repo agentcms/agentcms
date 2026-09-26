@@ -84,6 +84,29 @@ export async function deletePost(
 
 // --- Index Operations ---
 
+/**
+ * The listing row for a post. Everything a list, a sitemap or a language
+ * switcher filters on has to be here, because those read only the index.
+ */
+export function toIndexEntry(post: AgentCMSPost): PostIndexEntry {
+  return {
+    slug: post.slug,
+    title: post.title,
+    description: post.description,
+    publishedAt: post.publishedAt,
+    updatedAt: post.updatedAt,
+    tags: post.tags,
+    category: post.category,
+    author: post.author,
+    authorType: post.authorType,
+    featuredImage: post.featuredImage,
+    featured: post.featured,
+    noindex: post.noindex,
+    lang: post.lang,
+    translationKey: post.translationKey,
+  };
+}
+
 export async function getIndex(kv: KVNamespace, prefix?: string): Promise<PostIndex> {
   const keys = prefix ? kvKeys(prefix) : KEYS;
   const index = await kv.get<PostIndex>(keys.index, "json");
@@ -103,19 +126,7 @@ export async function updateIndex(
   index.posts = index.posts.filter((p) => p.slug !== post.slug);
 
   if (action === "upsert" && post.status === "published") {
-    const entry: PostIndexEntry = {
-      slug: post.slug,
-      title: post.title,
-      description: post.description,
-      publishedAt: post.publishedAt,
-      tags: post.tags,
-      category: post.category,
-      author: post.author,
-      authorType: post.authorType,
-      featuredImage: post.featuredImage,
-      featured: post.featured,
-    };
-    index.posts.unshift(entry);
+    index.posts.unshift(toIndexEntry(post));
   }
 
   // Sort newest first

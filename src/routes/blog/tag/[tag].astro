@@ -19,6 +19,9 @@ const { posts, totalPages, currentPage } = await getAgentCMSPosts({
   limit: perPage,
   tag: tag!,
 });
+
+// Purged by any publish, edit or delete through the agent API (Astro route cache).
+if (Astro.cache?.enabled) Astro.cache.set({ tags: ["agentcms:posts"] });
 ---
 
 <html lang="en">

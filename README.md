@@ -1,6 +1,6 @@
 # AgentCMS
 
-**AI-agent-first headless CMS for Astro 6 + Cloudflare.**
+**AI-agent-first headless CMS for Astro 6 and 7 + Cloudflare.** Also runs as a plain Worker or Pages middleware, for sites that aren't Astro.
 
 Drop-in blog engine where AI agents are first-class content authors. Posts stored in Cloudflare KV, served via Astro's Live Content Collections, writable through a secure API with machine-readable skill discovery.
 
@@ -36,6 +36,7 @@ That's it. You get:
 - `/sitemap.xml` — sitemap, with the posts and your own pages
 - `/robots.txt` — robots, pointing at the sitemap
 - `/api/agent/*` — write API for agents
+- `/api/posts`, `/api/posts/[slug]`, `/api/tags`, `/api/categories` — public read API (JSON, sanitized); any of these your project serves itself is left alone (`publicApi: false` turns them off)
 - `/.well-known/agent-skill.json` — skill discovery for AI agents
 
 `/sitemap.xml`, `/robots.txt` and `/feed.xml` are served in **both** modes — see
@@ -89,6 +90,96 @@ or the source's own offset, before sending.
 { "title": "…", "content": "…", "slug": "old-slug",
   "publishedAt": "2021-03-04T05:06:07Z", "updatedAt": "2022-01-10T09:00:00Z" }
 ```
+
+### Languages
+
+A site that publishes in several languages lists them in its config, default first:
+
+```json
+{ "name": "My blog", "languages": ["en", "de"] }
+```
+
+Each translation is its own post with a `lang` and a shared `translationKey`:
+
+```json
+{ "title": "Hallo Welt", "content": "…", "lang": "de", "translationKey": "hello-world" }
+```
+
+A `lang` outside `languages` is a 422, and a second post in the same language
+for one `translationKey` is a 409. A post with no `lang` counts as the default
+language. `GET /api/posts/:slug` returns `translations` (every language version),
+`/api/posts?lang=de` filters, and the built-in post page sets `<html lang>` and
+`hreflang` alternates.
+
+### Other post fields
+
+- `metadata`: free-form JSON (max 16KB) for your own use, such as source IDs or a
+  sponsor. It is stored and returned, never rendered. On update it is replaced as a whole.
+- `ogImage`, `featuredImage`, `canonicalUrl`: absolute http(s) URLs. Upload
+  returns an absolute `url` (plus a site-relative `path`), so it can be used directly.
+- `noindex`: keeps the post out of the sitemap and adds `robots: noindex`.
+- On update, `null` clears `featuredImage`, `ogImage`, `canonicalUrl`, `lang` and `translationKey`.
+
+## Reading posts
+
+### Live content collection (Astro 6.4+ / 7)
+
+```ts
+// src/live.config.ts
+import { defineLiveCollection } from "astro:content";
+import { agentcmsLoader } from "@agentcms/agentcms/loader";
+
+export const collections = {
+  posts: defineLiveCollection({ loader: agentcmsLoader() }),
+};
+```
+
+```astro
+---
+import { getLiveEntry } from "astro:content";
+const { entry } = await getLiveEntry("posts", Astro.params.slug!);
+if (!entry) return new Response("Not found", { status: 404 });
+Astro.cache.set(entry); // cache tags + lastModified, when a cache provider is configured
+---
+<article set:html={entry.rendered?.html} />
+```
+
+With no options, the loader reads the site's own KV. `agentcmsLoader({ url: "https://cms.example.com" })`
+reads another AgentCMS over its public API instead, which works from any Astro host,
+including a static build. `getLiveCollection("posts", { lang, tag, category, since, limit, page })` filters.
+
+### Cache invalidation
+
+Entries and the built-in pages carry the cache tags `agentcms:posts` and
+`agentcms:post:<slug>`. With Astro's route cache configured (for example
+`cacheCloudflare` from `@astrojs/cloudflare/cache`), every publish, update or
+delete through the agent API purges exactly those tags. With no provider this does nothing.
+
+### Pulling at build time
+
+`GET /api/posts?full=1` returns every post with rendered, sanitized `contentHtml`.
+Add `since=<ISO date>` to fetch only posts changed since your last build.
+
+## Without Astro
+
+As a standalone Worker (bindings: `AGENTCMS_KV`, and `AGENTCMS_R2` for uploads):
+
+```ts
+// src/index.ts
+import { createAgentCMSWorker } from "@agentcms/agentcms/worker";
+export default createAgentCMSWorker({ cors: "https://www.example.com" });
+```
+
+As Cloudflare Pages middleware:
+
+```ts
+// functions/_middleware.ts
+import { agentcmsMiddleware } from "@agentcms/agentcms/cloudflare";
+export const onRequest = agentcmsMiddleware();
+```
+
+Both serve the agent API, the public API, `/images/*`, the sitemap, robots.txt and
+the skill file. Webhook deliveries run under `waitUntil`, so they finish after the response is sent.
 
 ## Headless Mode
 

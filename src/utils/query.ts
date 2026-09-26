@@ -16,6 +16,15 @@ import type {
 import { getIndex, getPost, getConfig } from "./kv.js";
 
 /**
+ * The site's default language: the first of `languages`, else `language`,
+ * else "en". A post with no `lang` is in this language — for filtering,
+ * translations and the one-post-per-language rule alike.
+ */
+export function defaultLanguage(config: AgentCMSSiteConfig | null | undefined): string {
+  return config?.languages?.[0] ?? config?.language ?? "en";
+}
+
+/**
  * Get paginated, filterable posts from KV.
  */
 export async function queryPosts(
@@ -32,6 +41,10 @@ export async function queryPosts(
     featured,
     author,
     authorType,
+    lang,
+    defaultLang,
+    translationKey,
+    since,
   } = options;
 
   const index = await getIndex(kv, prefix);
@@ -56,6 +69,18 @@ export async function queryPosts(
   if (authorType) {
     filtered = filtered.filter((p) => p.authorType === authorType);
   }
+  if (lang) {
+    filtered = filtered.filter((p) => (p.lang ?? defaultLang) === lang);
+  }
+  if (translationKey) {
+    filtered = filtered.filter((p) => p.translationKey === translationKey);
+  }
+  if (since) {
+    const from = Date.parse(since);
+    if (!Number.isNaN(from)) {
+      filtered = filtered.filter((p) => Date.parse(p.updatedAt || p.publishedAt) >= from);
+    }
+  }
 
   const totalPosts = filtered.length;
   const totalPages = Math.ceil(totalPosts / limit);
@@ -72,6 +97,24 @@ export async function queryPosts(
     totalPosts,
     currentPage: page,
   };
+}
+
+/**
+ * The published language versions of one article, for a language switcher and
+ * hreflang links. Posts without `lang` are listed under `defaultLang`.
+ */
+export async function queryTranslations(
+  kv: KVNamespace,
+  translationKey: string,
+  prefix?: string,
+  defaultLang?: string
+): Promise<Array<{ lang: string; slug: string; title: string }>> {
+  const index = await getIndex(kv, prefix);
+  return index.posts
+    .filter((p) => p.translationKey === translationKey && !p.noindex)
+    .map((p) => ({ lang: p.lang ?? defaultLang ?? "", slug: p.slug, title: p.title }))
+    .filter((t) => t.lang)
+    .sort((a, b) => a.lang.localeCompare(b.lang));
 }
 
 /**

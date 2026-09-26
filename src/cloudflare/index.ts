@@ -9,6 +9,8 @@
 //   import { agentcmsMiddleware } from "@agentcms/agentcms/cloudflare";
 //   export const onRequest = agentcmsMiddleware();
 //
+// For a plain Worker, `@agentcms/agentcms/worker` wraps the same router.
+//
 // ============================================================================
 
 import {
@@ -18,6 +20,7 @@ import {
   handleListTags,
   handleSitemap,
   handleRobotsTxt,
+  handleImage,
 } from "../handlers/public.js";
 
 import {
@@ -29,6 +32,7 @@ import {
   handleAgentContext,
   handleAgentUpload,
   handleSkill,
+  type HandlerOptions,
 } from "../handlers/agent.js";
 
 import type { AgentCMSEnv } from "../handlers/public.js";
@@ -43,12 +47,29 @@ export interface AgentCMSMiddlewareOptions {
   apiBase?: string;
   /** Base path for agent routes (default: "/api/agent") */
   agentBase?: string;
+  /** Where the site shows a post, for the `url` publish returns (default: "/blog") */
+  blogBase?: string;
   /** Enable sitemap.xml handler (default: true) */
   sitemap?: boolean | SitemapOptions;
   /** Enable robots.txt handler (default: true) */
   robots?: boolean | RobotsTxtOptions;
   /** Enable /.well-known/agent-skill.json (default: true) */
   skillEndpoint?: boolean;
+  /** Serve uploaded images at /images/:key (default: true) */
+  images?: boolean;
+  /**
+   * Allowed origin(s) for browser reads of the public API, e.g. a static
+   * frontend on another domain. Off by default; "*" allows any.
+   */
+  cors?: string | string[];
+}
+
+/** What a handler needs from the platform: the env, and a way to outlive the response. */
+export interface RouteContext {
+  request: Request;
+  env: AgentCMSEnv;
+  params: Record<string, string>;
+  waitUntil?: (promise: Promise<unknown>) => void;
 }
 
 type PagesContext = {
@@ -56,21 +77,28 @@ type PagesContext = {
   env: AgentCMSEnv;
   params: Record<string, string | string[]>;
   next: () => Promise<Response>;
+  waitUntil?: (promise: Promise<unknown>) => void;
 };
+
+type WaitUntil = (promise: Promise<unknown>) => void;
 
 // ---------------------------------------------------------------------------
 // Route matching
 // ---------------------------------------------------------------------------
 
-type RouteHandler = (ctx: PagesContext) => Promise<Response>;
+type RouteHandler = (ctx: RouteContext, opts: HandlerOptions) => Promise<Response>;
 
 interface Route {
   method: string | null; // null = any method
   pattern: RegExp;
   handler: RouteHandler;
+  /** Public read route: gets CORS headers when `cors` is set. */
+  public?: boolean;
 }
 
-function buildRoutes(opts: Required<AgentCMSMiddlewareOptions>): Route[] {
+const SLUG = "(?<slug>[a-z0-9-]+)";
+
+function buildRoutes(opts: ResolvedOptions): Route[] {
   const api = opts.apiBase.replace(/\/$/, "");
   const agent = opts.agentBase.replace(/\/$/, "");
   const routes: Route[] = [];
@@ -85,7 +113,7 @@ function buildRoutes(opts: Required<AgentCMSMiddlewareOptions>): Route[] {
   routes.push({
     method: "POST",
     pattern: new RegExp(`^${escRe(agent)}/publish$`),
-    handler: (ctx) => handlePublish(ctx.request, ctx.env),
+    handler: (ctx, o) => handlePublish(ctx.request, ctx.env, o),
   });
 
   routes.push({
@@ -102,20 +130,20 @@ function buildRoutes(opts: Required<AgentCMSMiddlewareOptions>): Route[] {
 
   routes.push({
     method: "GET",
-    pattern: new RegExp(`^${escRe(agent)}/posts/(?<slug>[a-z0-9-]+)$`),
-    handler: (ctx) => handleAgentGetPost(ctx.request, ctx.env, ctx.params.slug as string),
+    pattern: new RegExp(`^${escRe(agent)}/posts/${SLUG}$`),
+    handler: (ctx) => handleAgentGetPost(ctx.request, ctx.env, ctx.params.slug),
   });
 
   routes.push({
     method: "PUT",
-    pattern: new RegExp(`^${escRe(agent)}/posts/(?<slug>[a-z0-9-]+)$`),
-    handler: (ctx) => handleAgentUpdatePost(ctx.request, ctx.env, ctx.params.slug as string),
+    pattern: new RegExp(`^${escRe(agent)}/posts/${SLUG}$`),
+    handler: (ctx, o) => handleAgentUpdatePost(ctx.request, ctx.env, ctx.params.slug, o),
   });
 
   routes.push({
     method: "DELETE",
-    pattern: new RegExp(`^${escRe(agent)}/posts/(?<slug>[a-z0-9-]+)$`),
-    handler: (ctx) => handleAgentDeletePost(ctx.request, ctx.env, ctx.params.slug as string),
+    pattern: new RegExp(`^${escRe(agent)}/posts/${SLUG}$`),
+    handler: (ctx, o) => handleAgentDeletePost(ctx.request, ctx.env, ctx.params.slug, o),
   });
 
   // --- Public read routes ---
@@ -123,25 +151,39 @@ function buildRoutes(opts: Required<AgentCMSMiddlewareOptions>): Route[] {
     method: "GET",
     pattern: new RegExp(`^${escRe(api)}/posts$`),
     handler: (ctx) => handleListPosts(ctx.request, ctx.env),
+    public: true,
   });
 
   routes.push({
     method: "GET",
-    pattern: new RegExp(`^${escRe(api)}/posts/(?<slug>[a-z0-9-]+)$`),
-    handler: (ctx) => handleGetPost(ctx.request, ctx.env, ctx.params.slug as string),
+    pattern: new RegExp(`^${escRe(api)}/posts/${SLUG}$`),
+    handler: (ctx) => handleGetPost(ctx.request, ctx.env, ctx.params.slug),
+    public: true,
   });
 
   routes.push({
     method: "GET",
     pattern: new RegExp(`^${escRe(api)}/categories$`),
     handler: (ctx) => handleListCategories(ctx.request, ctx.env),
+    public: true,
   });
 
   routes.push({
     method: "GET",
     pattern: new RegExp(`^${escRe(api)}/tags$`),
     handler: (ctx) => handleListTags(ctx.request, ctx.env),
+    public: true,
   });
+
+  // --- Images (upload returns URLs under /images) ---
+  if (opts.images !== false) {
+    routes.push({
+      method: "GET",
+      pattern: /^\/images\/(?<key>[^/]+)$/,
+      handler: (ctx) => handleImage(ctx.request, ctx.env, ctx.params.key),
+      public: true,
+    });
+  }
 
   // --- Sitemap ---
   if (opts.sitemap !== false) {
@@ -179,6 +221,81 @@ function escRe(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+type ResolvedOptions = Required<Omit<AgentCMSMiddlewareOptions, "cors">> &
+  Pick<AgentCMSMiddlewareOptions, "cors">;
+
+function resolveOptions(options: AgentCMSMiddlewareOptions): ResolvedOptions {
+  return {
+    apiBase: options.apiBase ?? "/api",
+    agentBase: options.agentBase ?? "/api/agent",
+    blogBase: options.blogBase ?? "/blog",
+    sitemap: options.sitemap ?? true,
+    robots: options.robots ?? true,
+    skillEndpoint: options.skillEndpoint ?? true,
+    images: options.images ?? true,
+    cors: options.cors,
+  };
+}
+
+/** The Access-Control-Allow-Origin value for this request, or null. */
+function allowedOrigin(cors: ResolvedOptions["cors"], request: Request): string | null {
+  if (!cors) return null;
+  const list = Array.isArray(cors) ? cors : [cors];
+  if (list.includes("*")) return "*";
+  const origin = request.headers.get("Origin");
+  return origin && list.includes(origin) ? origin : null;
+}
+
+function withCors(response: Response, origin: string): Response {
+  const res = new Response(response.body, response);
+  res.headers.set("Access-Control-Allow-Origin", origin);
+  if (origin !== "*") res.headers.append("Vary", "Origin");
+  return res;
+}
+
+/**
+ * The AgentCMS router: answers a request it owns, or returns null so the
+ * caller can fall through to the rest of the app.
+ */
+export function createAgentCMSRouter(
+  options: AgentCMSMiddlewareOptions = {}
+): (request: Request, env: AgentCMSEnv, waitUntil?: WaitUntil) => Promise<Response | null> {
+  const opts = resolveOptions(options);
+  const routes = buildRoutes(opts);
+
+  return async (request, env, waitUntil) => {
+    const pathname = new URL(request.url).pathname;
+    const method = request.method.toUpperCase();
+
+    for (const route of routes) {
+      const match = route.pattern.exec(pathname);
+      if (!match) continue;
+
+      const origin = route.public ? allowedOrigin(opts.cors, request) : null;
+      if (method === "OPTIONS" && origin) {
+        return new Response(null, {
+          status: 204,
+          headers: {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+            "Access-Control-Max-Age": "86400",
+            ...(origin !== "*" ? { Vary: "Origin" } : {}),
+          },
+        });
+      }
+      if (route.method && route.method !== method) continue;
+
+      const ctx: RouteContext = { request, env, params: { ...match.groups }, waitUntil };
+      const response = await route.handler(ctx, {
+        basePath: opts.blogBase,
+        ...(waitUntil ? { waitUntil } : {}),
+      });
+      return origin ? withCors(response, origin) : response;
+    }
+    return null;
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Middleware factory
 // ---------------------------------------------------------------------------
@@ -207,37 +324,16 @@ function escRe(str: string): string {
 export function agentcmsMiddleware(
   options: AgentCMSMiddlewareOptions = {}
 ): (ctx: PagesContext) => Promise<Response> {
-  const opts: Required<AgentCMSMiddlewareOptions> = {
-    apiBase: options.apiBase ?? "/api",
-    agentBase: options.agentBase ?? "/api/agent",
-    sitemap: options.sitemap ?? true,
-    robots: options.robots ?? true,
-    skillEndpoint: options.skillEndpoint ?? true,
-  };
-
-  const routes = buildRoutes(opts);
+  const route = createAgentCMSRouter(options);
 
   return async (ctx: PagesContext): Promise<Response> => {
-    const url = new URL(ctx.request.url);
-    const pathname = url.pathname;
-    const method = ctx.request.method.toUpperCase();
-
-    for (const route of routes) {
-      if (route.method && route.method !== method) continue;
-
-      const match = route.pattern.exec(pathname);
-      if (!match) continue;
-
-      // Extract named groups into ctx.params
-      if (match.groups) {
-        ctx.params = { ...ctx.params, ...match.groups };
-      }
-
-      return route.handler(ctx);
-    }
-
+    // Called through ctx, so Pages' waitUntil keeps its `this`.
+    const waitUntil: WaitUntil | undefined = ctx.waitUntil
+      ? (p) => ctx.waitUntil?.(p)
+      : undefined;
+    const response = await route(ctx.request, ctx.env, waitUntil);
     // Not an AgentCMS route — pass through
-    return ctx.next();
+    return response ?? ctx.next();
   };
 }
 

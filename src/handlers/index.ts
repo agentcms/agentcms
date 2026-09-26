@@ -17,6 +17,7 @@ export {
   handleListTags,
   handleSitemap,
   handleRobotsTxt,
+  handleImage,
 } from "./public.js";
 
 // --- Types for handler options ---
@@ -33,3 +34,4 @@ export {
   handleAgentUpload,
   handleSkill,
 } from "./agent.js";
+export type { HandlerOptions, ContextOptions } from "./agent.js";
