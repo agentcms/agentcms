@@ -19,4 +19,7 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --fund=false
       - run: npm run build
+      # src/routes/** ships as source and is excluded from the build's tsconfig, so without this the
+      # only runtime files every consumer executes were never type-checked by anything.
+      - run: npm run typecheck:routes
       - run: npm test

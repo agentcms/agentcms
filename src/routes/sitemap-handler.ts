@@ -34,12 +34,15 @@ export function createSitemapRoute(config: SitemapRouteConfig): APIRoute {
     const basePath = config.basePath || "/blog";
     const siteUrl = new URL(request.url).origin;
 
-    const staticPages = config.staticPages?.length
-      ? config.staticPages
-      : [
-          { loc: "/", changefreq: "weekly" as const, priority: 1.0 },
-          { loc: basePath, changefreq: "daily" as const, priority: 0.8 },
-        ];
+    // `?? default`, not `?.length ? … : default`: an empty array is the integration saying it
+    // looked at the project's routes and found none to list. Inventing "/" and the blog base there
+    // is how a headless site whose blog lives at /news ended up advertising /blog.
+    const staticPages =
+      config.staticPages ??
+      [
+        { loc: "/", changefreq: "weekly" as const, priority: 1.0 },
+        { loc: basePath, changefreq: "daily" as const, priority: 0.8 },
+      ];
 
     // A KV outage must not 500. A sitemap that errors teaches Search Console the sitemap is
     // broken and it stops asking; the static tree still gets crawled either way.
@@ -47,16 +50,26 @@ export function createSitemapRoute(config: SitemapRouteConfig): APIRoute {
     let degraded = false;
     try {
       posts = (await getIndex(kv, prefix)).posts;
-    } catch {
+    } catch (err) {
       degraded = true;
+      // Said out loud: a permanently wrong kvBinding otherwise yields a permanently post-less 200
+      // with no signal anywhere, which is the silent downgrade this release exists to remove.
+      console.error("[agentcms] /sitemap.xml could not read KV:", err);
     }
 
-    return new Response(generateSitemapXml(siteUrl, posts, { basePath, staticPages }), {
-      headers: {
-        "Content-Type": "application/xml; charset=utf-8",
-        // Shorter while degraded, so a blip is not cached as the sitemap for an hour.
-        "Cache-Control": degraded ? "public, max-age=60" : "public, max-age=3600",
-      },
-    });
+    return new Response(
+      generateSitemapXml(siteUrl, posts, {
+        basePath,
+        staticPages,
+        trailingSlash: config.trailingSlash,
+      }),
+      {
+        headers: {
+          "Content-Type": "application/xml; charset=utf-8",
+          // Shorter while degraded, so a blip is not cached as the sitemap for an hour.
+          "Cache-Control": degraded ? "public, max-age=60" : "public, max-age=3600",
+        },
+      }
+    );
   };
 }

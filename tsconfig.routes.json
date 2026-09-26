@@ -1,0 +1,22 @@
+// The package's `.ts` route files are shipped as source (`exports: { "./routes/*": "./src/routes/*" }`),
+// so a consumer's build compiles them — but the main tsconfig excludes `src/routes/**`, because the
+// same directory holds `.astro` files tsc cannot read. That left every runtime file a consumer
+// actually executes unchecked by `npm run build` and untouched by CI.
+//
+// This config checks the `.ts` ones and nothing else. `npm run typecheck:routes`, wired into CI.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationDir": null,
+    "types": ["@cloudflare/workers-types", "node"]
+  },
+  // Everything, routes included. `src/index.ts` has to be in it: that is where the
+  // `globalThis.__AGENTCMS_CONFIG__` declaration lives, and without it every route that reads the
+  // global is an error here rather than in the real build.
+  "include": ["src/**/*.ts"],
+  // `src/components/**` stays out for the reason the main config excludes it: its barrel
+  // re-exports .astro components, which tsc cannot resolve.
+  "exclude": ["node_modules", "dist", "src/**/*.astro", "src/components/**"]
+}

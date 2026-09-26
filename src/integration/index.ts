@@ -75,30 +75,64 @@ export type SeoRouteSource =
 
 interface SeoRouteSpec {
   pattern: string;
+  /** Fallback entrypoint, used only when the generated module cannot be written. */
   entrypoint: string;
-  /** Files in src/pages that would make the project own this path. */
-  pages: string[];
+  /** Module + factory the generated route calls, with this site's config baked in. */
+  handlerModule: string;
+  factory: string;
+  /** File name for the generated module inside Astro's codegen dir. */
+  fileName: string;
+  /** Bare route names under src/pages that would make the project own this path. */
+  pageNames: string[];
   /** Files in public/ that would make the project own this path. */
   assets: string[];
+}
+
+/**
+ * Page file forms that make a project own a route. All of them matter, because a probe MISS is not
+ * a harmless duplicate: Astro sorts an `endpoint` ahead of a `page` when everything else ties
+ * (core/routing/priority.js) and the router returns the first match, so an injected endpoint would
+ * WIN and the site's own file would quietly stop serving.
+ *
+ * `<name>/index.<ext>` is the directory-index form, which resolves to the same route.
+ */
+const PAGE_EXTENSIONS = ["ts", "js", "mjs", "astro", "md", "mdx"];
+
+function pageCandidates(routeName: string): string[] {
+  const out: string[] = [];
+  for (const ext of PAGE_EXTENSIONS) {
+    out.push(`${routeName}.${ext}`);
+    out.push(`${routeName}/index.${ext}`);
+  }
+  return out;
 }
 
 const SEO_ROUTES: Record<SeoRouteKind, SeoRouteSpec> = {
   sitemap: {
     pattern: "/sitemap.xml",
     entrypoint: "@agentcms/agentcms/routes/sitemap.xml.ts",
-    pages: ["sitemap.xml.ts", "sitemap.xml.js", "sitemap.xml.astro"],
+    handlerModule: "@agentcms/agentcms/routes/sitemap-handler.ts",
+    factory: "createSitemapRoute",
+    fileName: "sitemap.xml.ts",
+    pageNames: ["sitemap.xml"],
     assets: ["sitemap.xml"],
   },
   robots: {
     pattern: "/robots.txt",
     entrypoint: "@agentcms/agentcms/routes/robots.txt.ts",
-    pages: ["robots.txt.ts", "robots.txt.js"],
+    handlerModule: "@agentcms/agentcms/routes/robots-handler.ts",
+    factory: "createRobotsRoute",
+    fileName: "robots.txt.ts",
+    pageNames: ["robots.txt"],
     assets: ["robots.txt"],
   },
   feed: {
     pattern: "/feed.xml",
     entrypoint: "@agentcms/agentcms/routes/feed.xml.ts",
-    pages: ["feed.xml.ts", "feed.xml.js"],
+    handlerModule: "@agentcms/agentcms/routes/feed-handler.ts",
+    factory: "createFeedRoute",
+    fileName: "feed.xml.ts",
+    pageNames: ["feed.xml"],
     assets: ["feed.xml"],
   },
 };
@@ -109,12 +143,28 @@ const SEO_ROUTES: Record<SeoRouteKind, SeoRouteSpec> = {
  * Deliberately a filesystem probe rather than a look at Astro's resolved routes: `injectRoute`
  * happens in `astro:config:setup`, long before routes are resolved, so by the time Astro could
  * tell us it is too late to decide. `existsSync` is injectable for tests.
+ *
+ * `redirects` counts too: `redirects: { "/sitemap.xml": "/sitemap-index.xml" }` is the standard
+ * pairing with @astrojs/sitemap, and Astro only drops a *file-based* route shadowed by a redirect,
+ * not an injected one — so without this the injected endpoint would win and silently kill the
+ * redirect.
+ *
+ * What it cannot see: a Cloudflare zone redirect, a bulk redirect, or a hand-written `functions/`
+ * handler. Those live outside the repo, so the log line states our intent, not a verified fetch.
  */
 export async function detectProjectSeoRoutes(
-  dirs: { srcDir?: URL | string; publicDir?: URL | string },
+  dirs: {
+    srcDir?: URL | string;
+    publicDir?: URL | string;
+    redirects?: Record<string, unknown>;
+  },
   existsSync?: (path: string) => boolean
 ): Promise<Set<SeoRouteKind>> {
   const owned = new Set<SeoRouteKind>();
+
+  for (const [kind, spec] of Object.entries(SEO_ROUTES) as [SeoRouteKind, SeoRouteSpec][]) {
+    if (dirs.redirects && Object.hasOwn(dirs.redirects, spec.pattern)) owned.add(kind);
+  }
 
   let exists = existsSync;
   let join: ((...parts: string[]) => string) | undefined;
@@ -138,7 +188,9 @@ export async function detectProjectSeoRoutes(
 
   for (const [kind, spec] of Object.entries(SEO_ROUTES) as [SeoRouteKind, SeoRouteSpec][]) {
     const candidates = [
-      ...(pagesDir ? spec.pages.map((f) => join(pagesDir, f)) : []),
+      ...(pagesDir
+        ? spec.pageNames.flatMap((n) => pageCandidates(n).map((f) => join(pagesDir, f)))
+        : []),
       ...(publicPath ? spec.assets.map((f) => join(publicPath, f)) : []),
     ];
     try {
@@ -212,13 +264,62 @@ export interface ResolvedRouteLike {
   type?: string;
   pattern?: string;
   params?: readonly string[];
+  /** 'project' | 'internal' | 'external' — who contributed the route. */
   origin?: string;
+  isPrerendered?: boolean;
 }
 
 export interface StaticPageEntry {
   loc: string;
   changefreq?: "always" | "hourly" | "daily" | "weekly" | "monthly" | "yearly" | "never";
   priority?: number;
+}
+
+export interface CollectSitePagesOptions {
+  /** The blog base path (the AgentCMS `basePath` option), e.g. "/blog". */
+  basePath: string;
+  /**
+   * Astro's `base`. It has to be applied here because `IntegrationResolvedRoute.pattern` is
+   * `RouteData.route`, which is built from the path segments alone — base is only ever applied to
+   * the matching regex. Without this, every URL in the sitemap of a based site is a 404.
+   */
+  base?: string;
+  /** Astro's `trailingSlash`. With "always" a URL without one redirects, so the sitemap needs it. */
+  trailingSlash?: "always" | "never" | "ignore";
+  /**
+   * True when AgentCMS injected the blog index itself (auto mode). Its route's origin is
+   * "internal", not "project", so it has to be admitted by name.
+   */
+  blogIndexInjected?: boolean;
+}
+
+export interface SitePages {
+  pages: StaticPageEntry[];
+  /**
+   * Prerendered dynamic routes that were dropped. `astro:routes:resolved` gives the pattern
+   * (`/guides/[slug]`), never the generated paths, so these cannot be listed — but they are the
+   * whole content of some sites, so the caller says so out loud instead of shipping a sitemap that
+   * looks complete.
+   */
+  droppedPrerendered: string[];
+}
+
+/** Canonical form for comparison: leading slash, no trailing slash, no base, no locale games. */
+function canonicalLoc(pattern: string): string | undefined {
+  if (!pattern.startsWith("/")) return undefined;
+  return pattern.length > 1 ? pattern.replace(/\/$/, "") : "/";
+}
+
+/** The URL a crawler should actually fetch: base applied, trailing slash as the site serves it. */
+function publicLoc(
+  loc: string,
+  base: string | undefined,
+  trailingSlash: "always" | "never" | "ignore" | undefined
+): string {
+  const b = (base ?? "").replace(/\/+$/, "");
+  const withBase = loc === "/" ? b || "/" : `${b}${loc}`;
+  if (trailingSlash !== "always") return withBase;
+  return withBase.endsWith("/") ? withBase : `${withBase}/`;
 }
 
 /**
@@ -229,50 +330,68 @@ export interface StaticPageEntry {
  * como.travel's guides) would get a sitemap that looks complete and is not. An incomplete
  * sitemap is a worse failure than a missing one, because nothing reports it.
  *
- * Dynamic routes are excluded: a route with params has no single URL, and guessing one is how a
- * sitemap ends up full of 404s. Posts are added by the endpoint from the KV index instead.
+ * What is deliberately left out:
+ *  - Dynamic routes. A route with params has no single URL, and guessing one is how a sitemap ends
+ *    up full of 404s. CMS posts are added by the endpoint from the KV index instead; prerendered
+ *    dynamic pages are reported in `droppedPrerendered` so the build can say they are missing.
+ *  - Routes another integration contributed (`origin !== "project"`). Keystatic's admin UI and a
+ *    web-vitals endpoint are not this site's content. AgentCMS's own blog index is the one
+ *    exception, admitted by name via `blogIndexInjected`.
+ *  - `/` and the blog base when nothing actually serves them. The previous version added both
+ *    unconditionally, so a headless site whose blog lives at /news still advertised /blog.
  */
 export function collectSitePages(
   routes: readonly ResolvedRouteLike[],
-  basePath: string
-): StaticPageEntry[] {
-  const base = basePath.replace(/\/$/, "") || "/blog";
+  opts: CollectSitePagesOptions
+): SitePages {
+  const base = (opts.basePath || "/blog").replace(/\/$/, "") || "/blog";
   const skip = new Set(["/404", "/500", "/sitemap.xml", "/robots.txt", "/feed.xml"]);
+  /** Patterns AgentCMS injected that ARE this site's content, despite origin "internal". */
+  const ownContent = new Set<string>(opts.blogIndexInjected ? [base] : []);
 
-  const locs: string[] = [];
+  const locs = new Set<string>();
+  const droppedPrerendered: string[] = [];
+
   for (const route of routes ?? []) {
     if (route.type !== "page") continue; // endpoints, redirects and fallbacks are not content
-    if (route.params?.length) continue; // dynamic — no single URL to list
-    const pattern = route.pattern;
-    if (!pattern || !pattern.startsWith("/")) continue;
-    const loc = pattern.length > 1 ? pattern.replace(/\/$/, "") : "/";
+    const loc = route.pattern ? canonicalLoc(route.pattern) : undefined;
+    if (!loc) continue;
+    if (route.params?.length) {
+      // Reported, never guessed at. Only prerendered ones are a real gap: an on-demand dynamic
+      // route has no fixed set of URLs at build time even in principle.
+      if (route.isPrerendered) droppedPrerendered.push(route.pattern!);
+      continue;
+    }
     if (skip.has(loc)) continue;
-    if (loc.startsWith(`${base}/`)) continue; // individual posts come from the KV index
-    locs.push(loc);
+    if (route.origin && route.origin !== "project" && !ownContent.has(loc)) continue;
+    locs.add(loc);
   }
 
-  // `/` and the blog index always belong, whether or not the project declares them as its own
-  // pages (in auto mode AgentCMS owns the blog index itself).
-  const entries: StaticPageEntry[] = [
-    { loc: "/", changefreq: "weekly", priority: 1.0 },
-    { loc: base, changefreq: "daily", priority: 0.8 },
-  ];
-  const seen = new Set(entries.map((e) => e.loc));
-  for (const loc of locs.sort()) {
-    if (seen.has(loc)) continue;
-    seen.add(loc);
-    // No changefreq or priority: we do not know how often someone else's page changes, and a
-    // number we made up is worse than an absent one.
-    entries.push({ loc });
-  }
-  return entries;
+  // `/` and the blog index get a changefreq and a priority because we do know something about
+  // them. Every other page gets neither: a number we made up for someone else's page is worse
+  // than an absent one.
+  const hints: Record<string, Omit<StaticPageEntry, "loc">> = {
+    "/": { changefreq: "weekly", priority: 1.0 },
+    [base]: { changefreq: "daily", priority: 0.8 },
+  };
+
+  const ordered: string[] = [];
+  for (const head of ["/", base]) if (locs.has(head)) ordered.push(head);
+  for (const loc of [...locs].sort()) if (!ordered.includes(loc)) ordered.push(loc);
+
+  const pages = ordered.map((loc) => ({
+    loc: publicLoc(loc, opts.base, opts.trailingSlash),
+    ...(hints[loc] ?? {}),
+  }));
+
+  return { pages, droppedPrerendered };
 }
 
 // ---------------------------------------------------------------------------
-// Generated sitemap route
+// Generated SEO routes
 // ---------------------------------------------------------------------------
 //
-// The sitemap needs two things an SSR endpoint cannot get for itself: the project's own pages, and
+// All three routes need something an SSR endpoint cannot get for itself: the project's own pages, and
 // the configured basePath (`globalThis.__AGENTCMS_CONFIG__` comes from `page-ssr`, which never runs
 // for a .ts endpoint — the footgun documented below). So the integration generates a real module
 // in Astro's codegen dir that calls the handler factory with both baked in.
@@ -283,17 +402,22 @@ export function collectSitePages(
 // injected, and neither optimizeDeps.exclude nor an esbuild resolver plugin reliably fixes it. A
 // file on disk resolves like any other source file.
 
-/** The generated module, written to Astro's codegen dir and used as the route's entrypoint. */
-export function renderSitemapRouteModule(config: {
-  basePath: string;
-  staticPages: StaticPageEntry[];
-  kvBinding?: string;
-  kvPrefix?: string;
-}): string {
+/**
+ * The generated module, written to Astro's codegen dir and used as the route's entrypoint.
+ *
+ * The specifier is the package's own `./routes/*` export, which resolves because AgentCMS is
+ * detected as a framework package (it declares `peerDependencies.astro` and the `astro` keyword),
+ * so the raw .ts lands in ssr.noExternal rather than being externalized.
+ */
+export function renderSeoRouteModule(
+  kind: SeoRouteKind,
+  config: Record<string, unknown>
+): string {
+  const { handlerModule, factory } = SEO_ROUTES[kind];
   return `// Generated by @agentcms/agentcms. Do not edit.
-import { createSitemapRoute } from "@agentcms/agentcms/routes/sitemap-handler.ts";
+import { ${factory} } from "${handlerModule}";
 
-export const GET = createSitemapRoute(${JSON.stringify(config, null, 2)});
+export const GET = ${factory}(${JSON.stringify(config, null, 2)});
 `;
 }
 
@@ -326,12 +450,19 @@ export default function agentcms(
     robots: "disabled",
     feed: "disabled",
   };
-  // Where the generated sitemap route is written, and what goes in it. The file is written twice:
-  // once in astro:config:setup so the entrypoint exists when Astro resolves routes, then again in
-  // astro:routes:resolved once the project's own pages are known. If that second hook never runs,
-  // the first version still serves -- with the blog only, which is what this route could do before.
+  // The sitemap module is written twice: once in astro:config:setup so the entrypoint exists when
+  // Astro resolves routes, then again in astro:routes:resolved once the project's own pages are
+  // known. If that second hook never runs, the first version still serves -- with the blog only,
+  // which is what this route could do before.
+  //
+  // `writeSitemapModule` is cleared alongside `sitemapModuleUrl` whenever generation fails, because
+  // a closure that survives its target is how the "graceful fallback" path came to throw
+  // ERR_INVALID_ARG_TYPE out of astro:routes:resolved -- and Astro rethrows hook errors, so the
+  // supposed degrade failed the whole build.
   let sitemapModuleUrl: URL | undefined;
-  let writeSitemapModule: ((pages: StaticPageEntry[]) => Promise<void>) | undefined;
+  let writeSitemapModule: ((pages: SitePages) => Promise<void>) | undefined;
+  /** `base` and `trailingSlash`, read in config:setup — see the note at their assignment. */
+  let astroConfig: { base?: string; trailingSlash?: "always" | "never" | "ignore" } | undefined;
 
   return {
     name: "agentcms",
@@ -424,50 +555,120 @@ export default function agentcms(
           projectOwned: await detectProjectSeoRoutes({
             srcDir: config.srcDir,
             publicDir: config.publicDir,
+            redirects: config.redirects as Record<string, unknown> | undefined,
           }),
         });
-        // The sitemap is generated rather than injected from the package — see
-        // renderSitemapRouteModule. Set up before the loop so the entrypoint exists first.
-        if (seoPlan.sitemap === "agentcms") {
-          try {
-            const { writeFile, mkdir } = await import("node:fs/promises");
-            const dir = createCodegenDir();
-            await mkdir(dir, { recursive: true });
-            sitemapModuleUrl = new URL("sitemap.xml.ts", dir);
-            writeSitemapModule = async (pages) => {
-              await writeFile(
-                sitemapModuleUrl!,
-                renderSitemapRouteModule({
-                  basePath: base || "/blog",
-                  staticPages: pages,
-                  kvBinding,
-                  ...(kvPrefix ? { kvPrefix } : {}),
-                }),
-                "utf-8"
-              );
-            };
-            await writeSitemapModule([]);
-          } catch (err) {
-            // Could not generate it (no writable codegen dir, non-Node builder). Fall back to the
-            // package route: blog-only, but a served sitemap beats a 404 — and say so, because a
-            // silent downgrade here is the exact failure this release exists to remove.
-            sitemapModuleUrl = undefined;
-            logger.warn(
-              `Could not generate the sitemap route (${err instanceof Error ? err.message : String(err)}). ` +
-                "Falling back to the built-in route, which lists the blog only — your own pages will be missing. " +
-                "Add src/pages/sitemap.xml.ts to take it over."
-            );
+
+        // Astro's `base`, which none of these routes can discover at request time either. It has
+        // to reach the sitemap's own URL in robots.txt as well: a based site serves the sitemap at
+        // <base>/sitemap.xml, so an un-based Sitemap: line points at a 404.
+        // Captured here, not in astro:config:done: that hook runs AFTER astro:routes:resolved
+        // (core/build/index.js calls createRoutesList before createVite), so by then the sitemap
+        // module has already been written.
+        astroConfig = { base: config.base, trailingSlash: config.trailingSlash };
+        const astroBase = (config.base ?? "").replace(/\/+$/, "");
+
+        // All three routes are generated rather than injected from the package, so basePath,
+        // kvPrefix and additionalSitemaps are baked in — `page-ssr` never runs for a .ts endpoint,
+        // and reading them from that global is what made the feed emit /blog permalinks on every
+        // site and made the documented additionalSitemaps option silently inert.
+        const routeConfig = (kind: SeoRouteKind): Record<string, unknown> => {
+          switch (kind) {
+            case "sitemap":
+              // The post URLs are built from this, so it carries Astro's base: an un-based
+              // basePath lists /blog/<slug> on a site that serves /docs/blog/<slug>.
+              return {
+                basePath: `${astroBase}${base || "/blog"}`,
+                trailingSlash: config.trailingSlash === "always",
+                staticPages: [],
+                kvBinding,
+                ...(kvPrefix ? { kvPrefix } : {}),
+              };
+            case "feed":
+              return {
+                basePath: `${astroBase}${base || "/blog"}`,
+                trailingSlash: config.trailingSlash === "always",
+                kvBinding,
+                ...(kvPrefix ? { kvPrefix } : {}),
+                ...(site ? { site } : {}),
+              };
+            case "robots":
+              return {
+                ...(additionalSitemaps ? { additionalSitemaps } : {}),
+                // Never point robots at a sitemap nobody serves. "project" counts: the site's own
+                // file answers /sitemap.xml just as well as ours would.
+                includeSitemap: seoPlan.sitemap !== "disabled",
+                sitemapPath: `${astroBase}/sitemap.xml`,
+              };
           }
+        };
+
+        // A generated module per route, in Astro's codegen dir (outside srcDir, so writing it
+        // cannot loop the dev watcher).
+        const generated: Partial<Record<SeoRouteKind, URL>> = {};
+        let writeModule:
+          | ((kind: SeoRouteKind, cfg: Record<string, unknown>) => Promise<void>)
+          | undefined;
+        try {
+          const { writeFile, mkdir, rename } = await import("node:fs/promises");
+          const dir = createCodegenDir();
+          await mkdir(dir, { recursive: true });
+          writeModule = async (kind, cfg) => {
+            const target = new URL(SEO_ROUTES[kind].fileName, dir);
+            // Temp file then rename, because Astro's route watcher does not serialize rebuilds:
+            // two `writeFile`s to the same path during one dev burst can leave it truncated, and
+            // writeFile opens with O_TRUNC. A rename is atomic on the same filesystem.
+            const temp = new URL(`${SEO_ROUTES[kind].fileName}.${process.pid}.tmp`, dir);
+            await writeFile(temp, renderSeoRouteModule(kind, cfg), "utf-8");
+            await rename(temp, target);
+          };
+          for (const kind of Object.keys(SEO_ROUTES) as SeoRouteKind[]) {
+            if (seoPlan[kind] !== "agentcms") continue;
+            await writeModule(kind, routeConfig(kind));
+            generated[kind] = new URL(SEO_ROUTES[kind].fileName, dir);
+          }
+          sitemapModuleUrl = generated.sitemap;
+          if (sitemapModuleUrl) {
+            writeSitemapModule = async ({ pages, droppedPrerendered }) => {
+              await writeModule!("sitemap", {
+                ...routeConfig("sitemap"),
+                staticPages: pages,
+              });
+              if (droppedPrerendered.length) {
+                // The sitemap cannot list these, and nothing else would report it. Said out loud
+                // because an incomplete sitemap is a worse failure than a missing one.
+                logger.warn(
+                  `Sitemap: ${droppedPrerendered.length} prerendered dynamic route(s) are not listed ` +
+                    `(${droppedPrerendered.join(", ")}). Astro reports the pattern, not the generated URLs, ` +
+                    "so add src/pages/sitemap.xml.ts if those pages need to be in it."
+                );
+              }
+            };
+          }
+        } catch (err) {
+          // Could not generate them (no writable codegen dir, non-Node builder). Fall back to the
+          // package routes — less configured, but served — and say so, because a silent downgrade
+          // here is the exact failure this release exists to remove.
+          //
+          // Both handles are cleared: leaving writeSitemapModule alive after sitemapModuleUrl went
+          // undefined made astro:routes:resolved throw ERR_INVALID_ARG_TYPE, and Astro rethrows
+          // hook errors, so the "fallback" failed the build outright.
+          sitemapModuleUrl = undefined;
+          writeSitemapModule = undefined;
+          writeModule = undefined;
+          logger.warn(
+            `Could not generate the SEO routes (${err instanceof Error ? err.message : String(err)}). ` +
+              "Falling back to the built-in ones: the sitemap will list the blog only, the feed will use " +
+              "basePath /blog, and additionalSitemaps will be ignored. " +
+              "Add your own src/pages/sitemap.xml.ts to take it over."
+          );
         }
 
         for (const kind of Object.keys(SEO_ROUTES) as SeoRouteKind[]) {
           if (seoPlan[kind] !== "agentcms") continue;
           injectRoute({
             pattern: SEO_ROUTES[kind].pattern,
-            entrypoint:
-              kind === "sitemap" && sitemapModuleUrl
-                ? sitemapModuleUrl
-                : SEO_ROUTES[kind].entrypoint,
+            entrypoint: generated[kind] ?? SEO_ROUTES[kind].entrypoint,
           });
         }
         if (seoPlan.sitemap === "disabled") {
@@ -476,10 +677,6 @@ export default function agentcms(
               "A site with no fetchable sitemap is a site search engines have to guess at."
           );
         }
-
-        // ---------------------------------------------------------------
-        // Virtual module: config that .ts endpoints can actually import
-        // ---------------------------------------------------------------
 
         // ---------------------------------------------------------------
         // Inject theme CSS
@@ -518,10 +715,17 @@ export default function agentcms(
         logger.info("AgentCMS ready ✓");
       },
 
-      // Runs after config:setup and before the Vite build, so the virtual module below is loaded
-      // with these pages already in hand.
-      "astro:routes:resolved": async ({ routes }: { routes: readonly ResolvedRouteLike[] }) => {
-        await writeSitemapModule?.(collectSitePages(routes, base || "/blog"));
+      // Runs after config:setup and before the Vite build (core/build/index.js: createRoutesList
+      // then createVite), so the generated module has the real pages in it before Vite reads it.
+      "astro:routes:resolved": async ({ routes }) => {
+        await writeSitemapModule?.(
+          collectSitePages(routes as readonly ResolvedRouteLike[], {
+            basePath: base || "/blog",
+            base: astroConfig?.base,
+            trailingSlash: astroConfig?.trailingSlash,
+            blogIndexInjected: mode === "auto",
+          })
+        );
       },
 
       "astro:config:done": ({ config, logger }) => {

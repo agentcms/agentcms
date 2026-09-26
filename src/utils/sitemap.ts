@@ -9,6 +9,24 @@
 
 import type { PostIndexEntry, SitemapOptions, RobotsTxtOptions } from "../types.js";
 
+/**
+ * A `loc` must be a valid URL before it is XML-escaped: the sitemap spec requires non-ASCII and
+ * reserved characters to be percent-encoded, and a page file like `src/pages/über.astro` (entirely
+ * plausible on the German-language properties) otherwise emits a raw non-ASCII loc. encodeURI, not
+ * encodeURIComponent: this is a path, so the slashes must survive.
+ */
+function encodePath(path: string): string {
+  // A path that already carries a percent-escape is left alone: encoding it again would turn
+  // /%C3%BCber into /%25C3%25BCber.
+  if (/%[0-9A-Fa-f]{2}/.test(path)) return path;
+  try {
+    return encodeURI(path);
+  } catch {
+    // A lone surrogate makes encodeURI throw. An unencoded loc beats no sitemap.
+    return path;
+  }
+}
+
 function escapeXml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -26,12 +44,13 @@ export function generateSitemapXml(
   posts: PostIndexEntry[],
   options: SitemapOptions = {}
 ): string {
-  const { basePath = "/blog", staticPages = [] } = options;
+  const { basePath = "/blog", staticPages = [], trailingSlash = false } = options;
   const origin = siteUrl.replace(/\/$/, "");
+  const slash = trailingSlash ? "/" : "";
 
   const staticEntries = staticPages
     .map((page) => {
-      const loc = `${origin}${page.loc}`;
+      const loc = `${origin}${encodePath(page.loc)}`;
       const parts = [`    <loc>${escapeXml(loc)}</loc>`];
       if (page.lastmod) parts.push(`    <lastmod>${escapeXml(page.lastmod)}</lastmod>`);
       if (page.changefreq) parts.push(`    <changefreq>${page.changefreq}</changefreq>`);
@@ -43,7 +62,7 @@ export function generateSitemapXml(
   const postEntries = posts
     .filter((p) => p.slug && !p.noindex)
     .map((post) => {
-      const loc = `${origin}${basePath}/${encodeURIComponent(post.slug)}`;
+      const loc = `${origin}${basePath}/${encodeURIComponent(post.slug)}${slash}`;
       const lastmod = post.publishedAt
         ? new Date(post.publishedAt).toISOString().split("T")[0]
         : undefined;
@@ -67,7 +86,14 @@ export function generateRobotsTxt(
   siteUrl: string,
   options: RobotsTxtOptions = {}
 ): string {
-  const { additionalSitemaps = [], disallow = ["/api/"] } = options;
+  const {
+    additionalSitemaps = [],
+    disallow = ["/api/"],
+    // Pointing robots at a sitemap nobody serves is the same class of lie as logging a route that
+    // was never injected, so the caller says whether this site actually has one.
+    includeSitemap = true,
+    sitemapPath = "/sitemap.xml",
+  } = options;
   const origin = siteUrl.replace(/\/$/, "");
 
   const lines: string[] = [
@@ -81,8 +107,7 @@ export function generateRobotsTxt(
 
   lines.push("");
 
-  // Always include this site's own sitemap
-  lines.push(`Sitemap: ${origin}/sitemap.xml`);
+  if (includeSitemap) lines.push(`Sitemap: ${origin}${sitemapPath}`);
 
   // Additional external sitemaps
   for (const url of additionalSitemaps) {

@@ -153,7 +153,10 @@ export interface AgentCMSOptions {
 // --- Sitemap & Robots.txt Options ---
 
 export interface SitemapOptions {
+  /** Blog base path for the post URLs, Astro's `base` included. */
   basePath?: string;
+  /** Append a trailing slash to the post URLs, for a `trailingSlash: "always"` site. */
+  trailingSlash?: boolean;
   staticPages?: Array<{
     loc: string;
     lastmod?: string;
@@ -166,6 +169,10 @@ export interface SitemapOptions {
 export interface RobotsTxtOptions {
   additionalSitemaps?: string[];
   disallow?: string[];
+  /** Emit this site's own `Sitemap:` line. False when nothing serves one. Default: true */
+  includeSitemap?: boolean;
+  /** Path of this site's own sitemap, when it is not /sitemap.xml. */
+  sitemapPath?: string;
 }
 
 // --- Data Helper Options ---
@@ -251,10 +258,37 @@ export interface X402SubmissionRecord {
 
 /** Config baked into the generated /sitemap.xml route. See createSitemapRoute. */
 export interface SitemapRouteConfig {
-  /** Blog base path. A .ts endpoint cannot read this from the page-ssr global. */
+  /**
+   * Blog base path, Astro's `base` INCLUDED — post URLs are built from it, and on a based site an
+   * un-based one lists a 404 for every post.
+   */
   basePath?: string;
+  /** Astro's `trailingSlash: "always"`, so a listed post URL does not redirect. */
+  trailingSlash?: boolean;
   /** The project's own indexable pages, so a headless site's sitemap is not just the posts. */
   staticPages?: SitemapOptions["staticPages"];
   kvBinding?: string;
   kvPrefix?: string;
+}
+
+/** Config baked into the generated /feed.xml route. See createFeedRoute. */
+export interface FeedRouteConfig {
+  /** Blog base path, Astro's `base` included — item permalinks are built from it. */
+  basePath?: string;
+  /** Astro's `trailingSlash: "always"`, so an item permalink does not redirect. */
+  trailingSlash?: boolean;
+  kvBinding?: string;
+  kvPrefix?: string;
+  /** Inline site config, used when KV has no config:site key. */
+  site?: AgentCMSSiteConfig;
+}
+
+/** Config baked into the generated /robots.txt route. See createRobotsRoute. */
+export interface RobotsRouteConfig {
+  additionalSitemaps?: string[];
+  disallow?: string[];
+  /** Emit this site's own `Sitemap:` line. False when nothing serves one. Default: true */
+  includeSitemap?: boolean;
+  /** Path of this site's sitemap, base included. Default: "/sitemap.xml" */
+  sitemapPath?: string;
 }

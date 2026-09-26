@@ -50,6 +50,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "typecheck:routes": "tsc -p tsconfig.routes.json",
     "dev": "tsc --watch",
     "lint": "biome check .",
     "test": "vitest run"

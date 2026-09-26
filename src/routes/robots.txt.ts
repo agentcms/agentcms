@@ -1,22 +1,13 @@
 // ============================================================================
 // GET /robots.txt — Dynamic Robots.txt
 // ============================================================================
+//
+// Kept for anyone wiring the route by hand. The integration does NOT use this file: it generates a
+// module that calls createRobotsRoute with additionalSitemaps baked in, which a .ts endpoint cannot
+// read from the page-ssr global.
+//
+// ============================================================================
 
-import type { APIRoute } from "astro";
-import { generateRobotsTxt } from "../utils/sitemap.js";
+import { createRobotsRoute } from "./robots-handler.js";
 
-export const GET: APIRoute = async ({ request }) => {
-  const siteUrl = new URL(request.url).origin;
-  const additionalSitemaps = globalThis.__AGENTCMS_CONFIG__?.additionalSitemaps;
-
-  const txt = generateRobotsTxt(siteUrl, {
-    additionalSitemaps,
-  });
-
-  return new Response(txt, {
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "public, max-age=3600",
-    },
-  });
-};
+export const GET = createRobotsRoute();
