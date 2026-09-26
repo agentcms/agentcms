@@ -118,10 +118,22 @@ export interface AgentCMSOptions {
   basePath?: string;
   /** Posts per page for auto mode pagination. Default: 12 */
   postsPerPage?: number;
-  /** Generate RSS feed. Default: true */
+  /**
+   * Serve /feed.xml. Default: true. Applies in both modes; ignored when the project has its own
+   * src/pages/feed.xml.* or public/feed.xml.
+   */
   rss?: boolean;
-  /** Generate sitemap.xml. Default: true */
+  /**
+   * Serve /sitemap.xml. Default: true. Applies in both modes — a headless site needs a sitemap
+   * exactly as much as an auto one. Ignored when the project has its own src/pages/sitemap.xml.*
+   * or public/sitemap.xml, which then serves the path instead.
+   */
   sitemap?: boolean;
+  /**
+   * Serve /robots.txt. Default: true. Applies in both modes; ignored when the project has its own
+   * src/pages/robots.txt.* or public/robots.txt.
+   */
+  robots?: boolean;
   /** Additional external sitemaps for robots.txt. */
   additionalSitemaps?: string[];
   /** Serve /.well-known/agent-skill.json. Default: true */
@@ -235,4 +247,14 @@ export interface X402SubmissionRecord {
   submittedAt: string;
   reviewedAt?: string;
   reviewedBy?: string;
+}
+
+/** Config baked into the generated /sitemap.xml route. See createSitemapRoute. */
+export interface SitemapRouteConfig {
+  /** Blog base path. A .ts endpoint cannot read this from the page-ssr global. */
+  basePath?: string;
+  /** The project's own indexable pages, so a headless site's sitemap is not just the posts. */
+  staticPages?: SitemapOptions["staticPages"];
+  kvBinding?: string;
+  kvPrefix?: string;
 }

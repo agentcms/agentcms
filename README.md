@@ -33,8 +33,13 @@ That's it. You get:
 - `/blog/[slug]` — individual posts with SEO
 - `/blog/tag/[tag]` — tag pages
 - `/feed.xml` — RSS feed
+- `/sitemap.xml` — sitemap, with the posts and your own pages
+- `/robots.txt` — robots, pointing at the sitemap
 - `/api/agent/*` — write API for agents
 - `/.well-known/agent-skill.json` — skill discovery for AI agents
+
+`/sitemap.xml`, `/robots.txt` and `/feed.xml` are served in **both** modes — see
+[SEO routes](#seo-routes).
 
 ## How Agents Publish
 
@@ -105,6 +110,36 @@ const { posts } = await getAgentCMSPosts({ limit: 10, tag: "ai" });
 
 <BlogList posts={posts} layout="grid" columns={2} />
 ```
+
+Headless mode gives you the blog routes to build. It does **not** take away
+`/sitemap.xml`, `/robots.txt` or `/feed.xml` — see below.
+
+## SEO routes
+
+`/sitemap.xml`, `/robots.txt` and `/feed.xml` are served in both `auto` and
+`headless` mode. Before 0.9.0 they were injected only in `auto` mode while the
+build log announced them in every mode, so headless sites shipped no sitemap and
+the build log said otherwise. Three production sites ran that way for months.
+
+The sitemap lists your own pages as well as the CMS posts. It reads them from
+Astro's resolved routes, so a page you add appears without configuration.
+Dynamic routes (`/guides/[slug]`), `/404`, `/500` and the individual post URLs
+are left out — the posts come from the KV index instead.
+
+**If you want to own one of these paths**, just create it. A
+`src/pages/sitemap.xml.ts`, or a `public/robots.txt`, makes AgentCMS stand down
+for that path rather than collide with you, and the build log says which of the
+two is serving:
+
+```
+  Sitemap: /sitemap.xml
+  Robots:  /robots.txt (your own — AgentCMS did not inject one)
+  Feed:    /feed.xml
+```
+
+Switch one off with `sitemap: false`, `robots: false` or `rss: false`. Nothing
+then serves that path, and the build warns you about it for the sitemap — a site
+with no fetchable sitemap is one search engines have to guess at.
 
 ## Styling
 

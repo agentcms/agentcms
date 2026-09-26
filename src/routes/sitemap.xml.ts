@@ -1,35 +1,15 @@
 // ============================================================================
 // GET /sitemap.xml — Dynamic Sitemap
 // ============================================================================
+//
+// Kept for anyone wiring the route by hand (`injectRoute` to
+// "@agentcms/agentcms/routes/sitemap.xml.ts", or a re-export from src/pages). The integration
+// does NOT use this file: it generates a small module that calls createSitemapRoute with the
+// project's own pages and the real basePath, neither of which an endpoint can discover for itself.
+// This path therefore lists the blog only.
+//
+// ============================================================================
 
-import type { APIRoute } from "astro";
-import { getIndex } from "../utils/kv.js";
-import { generateSitemapXml } from "../utils/sitemap.js";
+import { createSitemapRoute } from "./sitemap-handler.js";
 
-export const GET: APIRoute = async ({ request }) => {
-  const { env } = await import("cloudflare:workers");
-  const bindingName = globalThis.__AGENTCMS_CONFIG__?.kvBinding || "AGENTCMS_KV";
-  const kv = (env as Record<string, unknown>)[bindingName] as KVNamespace;
-  const prefix =
-    ((env as Record<string, unknown>).AGENTCMS_PREFIX as string | undefined) ??
-    globalThis.__AGENTCMS_CONFIG__?.kvPrefix;
-  const basePath = globalThis.__AGENTCMS_CONFIG__?.basePath || "/blog";
-  const siteUrl = new URL(request.url).origin;
-
-  const index = await getIndex(kv, prefix);
-
-  const xml = generateSitemapXml(siteUrl, index.posts, {
-    basePath,
-    staticPages: [
-      { loc: "/", changefreq: "weekly", priority: 1.0 },
-      { loc: basePath, changefreq: "daily", priority: 0.8 },
-    ],
-  });
-
-  return new Response(xml, {
-    headers: {
-      "Content-Type": "application/xml; charset=utf-8",
-      "Cache-Control": "public, max-age=3600",
-    },
-  });
-};
+export const GET = createSitemapRoute({});
