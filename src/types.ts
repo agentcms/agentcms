@@ -26,6 +26,15 @@ export interface AgentCMSPost {
   noindex?: boolean;
   /** Canonical URL override for SEO deduplication. */
   canonicalUrl?: string;
+  /** Language of this post (BCP 47, e.g. "en", "de", "pt-BR"). */
+  lang?: string;
+  /** Groups one article's translations: every language version shares it. */
+  translationKey?: string;
+  /**
+   * Site-specific structured data (e.g. `{ towns: ["bellagio"] }`). JSON only,
+   * size-capped, and never rendered by AgentCMS — a site that renders a value
+   * from here as HTML must sanitize it itself.
+   */
   metadata: Record<string, unknown>;
   agentMetadata?: AgentMetadata;
 }
@@ -59,6 +68,10 @@ export interface PostIndexEntry {
   featuredImage?: string;
   featured?: boolean;
   noindex?: boolean;
+  /** Missing on entries written before 0.10; read it as publishedAt. */
+  updatedAt?: string;
+  lang?: string;
+  translationKey?: string;
 }
 
 // --- Agent API Key ---
@@ -81,7 +94,13 @@ export interface AgentCMSSiteConfig {
   name: string;
   description: string;
   url: string;
+  /** Default language (BCP 47). Posts without `lang` are in this language. */
   language: string;
+  /**
+   * Languages the site publishes in, default first. When set, a post's `lang`
+   * must be one of them.
+   */
+  languages?: string[];
   writingGuidelines: WritingGuidelines;
   seo: SEOConfig;
   moderation: ModerationConfig;
@@ -138,6 +157,11 @@ export interface AgentCMSOptions {
   additionalSitemaps?: string[];
   /** Serve /.well-known/agent-skill.json. Default: true */
   skillEndpoint?: boolean;
+  /**
+   * Serve the public read API: /api/posts, /api/posts/[slug], /api/tags, /api/categories.
+   * Default: true. Each path the project serves itself is left to the project.
+   */
+  publicApi?: boolean;
   /** Include default CSS theme. Default: "default" */
   theme?: "default" | "none";
   /** KV binding name. Default: "AGENTCMS_KV" */
@@ -186,6 +210,14 @@ export interface GetPostsOptions {
   featured?: boolean;
   author?: string;
   authorType?: "agent" | "human";
+  /** Only posts in this language. Posts without `lang` count as `defaultLang`. */
+  lang?: string;
+  /** The language of posts that carry no `lang` (the site's default). */
+  defaultLang?: string;
+  /** Only the language versions of one article. */
+  translationKey?: string;
+  /** Only posts updated at or after this instant (ISO 8601). */
+  since?: string;
 }
 
 export interface GetPostsResult {

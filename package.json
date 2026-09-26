@@ -1,7 +1,7 @@
 {
   "name": "@agentcms/agentcms",
-  "version": "0.9.0",
-  "description": "AI-agent-first headless CMS for Astro 6 + Cloudflare",
+  "version": "0.10.0",
+  "description": "AI-agent-first headless CMS for Astro 6/7 + Cloudflare",
   "type": "module",
   "license": "MIT",
   "author": "MC2 Ventures",
@@ -37,7 +37,15 @@
     "./components/*": "./src/components/*",
     "./routes/*": "./src/routes/*",
     "./theme/default.css": "./src/theme/default.css",
-    "./theme/prose.css": "./src/theme/prose.css"
+    "./theme/prose.css": "./src/theme/prose.css",
+    "./worker": {
+      "types": "./dist/worker/index.d.ts",
+      "default": "./dist/worker/index.js"
+    },
+    "./loader": {
+      "types": "./dist/loader/index.d.ts",
+      "default": "./dist/loader/index.js"
+    }
   },
   "files": [
     "dist",
@@ -56,8 +64,8 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "@astrojs/cloudflare": "^13.0.0",
-    "astro": "^6.0.0"
+    "@astrojs/cloudflare": "^13.0.0 || ^14.0.0",
+    "astro": "^6.0.0 || ^7.0.0"
   },
   "dependencies": {
     "htmlparser2": "^12.0.0",
@@ -74,5 +82,13 @@
   },
   "bin": {
     "agentcms": "dist/cli/index.js"
+  },
+  "peerDependenciesMeta": {
+    "@astrojs/cloudflare": {
+      "optional": true
+    },
+    "astro": {
+      "optional": true
+    }
   }
 }

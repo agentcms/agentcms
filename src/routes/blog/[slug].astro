@@ -4,7 +4,11 @@
  * Injected at {basePath}/[slug] when mode is "auto".
  */
 import BlogPostComponent from "@agentcms/agentcms/components/BlogPost.astro";
-import { getAgentCMSPost, getAgentCMSConfig } from "@agentcms/agentcms";
+import {
+  getAgentCMSPost,
+  getAgentCMSConfig,
+  getAgentCMSTranslations,
+} from "@agentcms/agentcms";
 
 const config = await getAgentCMSConfig();
 const basePath = globalThis.__AGENTCMS_CONFIG__?.basePath || "/blog";
@@ -19,26 +23,62 @@ if (!post || post.status !== "published") {
 const seoTitle = config?.seo?.titleTemplate
   ? config.seo.titleTemplate.replace("%s", post.title)
   : post.title;
+
+const defaultLang = config?.languages?.[0] ?? config?.language ?? "en";
+const lang = post.lang ?? defaultLang;
+const canonical = post.canonicalUrl ?? new URL(Astro.url.pathname, Astro.url.origin).href;
+// Stored images may be site-relative (uploads before 0.10); social cards need absolute URLs.
+const cardImage = post.ogImage ?? post.featuredImage;
+const cardImageUrl = cardImage ? new URL(cardImage, Astro.url.origin).href : undefined;
+
+// hreflang only when the article exists in more than one language.
+const translations = post.translationKey
+  ? await getAgentCMSTranslations(post.translationKey)
+  : [];
+const alternates =
+  translations.length > 1
+    ? translations.map((t) => ({
+        lang: t.lang,
+        href: new URL(`${basePath}/${t.slug}`, Astro.url.origin).href,
+      }))
+    : [];
+const xDefault = alternates.find((a) => a.lang === defaultLang);
+
+// With Astro's route cache (a provider configured), tag the page so a publish or
+// edit through the agent API purges it. Without one, `enabled` is false.
+if (Astro.cache?.enabled) {
+  const modified = new Date(post.updatedAt || post.publishedAt);
+  Astro.cache.set({
+    tags: ["agentcms:posts", `agentcms:post:${post.slug}`],
+    ...(Number.isNaN(modified.getTime()) ? {} : { lastModified: modified }),
+  });
+}
 ---
 
-<html lang={config?.language || "en"}>
+<html lang={lang}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{seoTitle}</title>
     <meta name="description" content={post.description} />
+    <link rel="canonical" href={canonical} />
+    {post.noindex && <meta name="robots" content="noindex" />}
+    {alternates.map((a) => <link rel="alternate" hreflang={a.lang} href={a.href} />)}
+    {xDefault && <link rel="alternate" hreflang="x-default" href={xDefault.href} />}
 
     <!-- Open Graph -->
     <meta property="og:title" content={post.title} />
     <meta property="og:description" content={post.description} />
     <meta property="og:type" content="article" />
-    <meta property="og:url" content={Astro.url.href} />
-    {post.featuredImage && <meta property="og:image" content={post.featuredImage} />}
+    <meta property="og:url" content={canonical} />
+    <meta property="og:locale" content={lang.replace("-", "_")} />
+    {cardImageUrl && <meta property="og:image" content={cardImageUrl} />}
     <meta property="article:published_time" content={post.publishedAt} />
+    {post.updatedAt && <meta property="article:modified_time" content={post.updatedAt} />}
     {post.tags.map((tag) => <meta property="article:tag" content={tag} />)}
 
     <!-- Twitter -->
-    <meta name="twitter:card" content={post.featuredImage ? "summary_large_image" : "summary"} />
+    <meta name="twitter:card" content={cardImageUrl ? "summary_large_image" : "summary"} />
     {config?.seo?.twitterHandle && (
       <meta name="twitter:site" content={config.seo.twitterHandle} />
     )}

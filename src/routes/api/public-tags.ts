@@ -1,9 +1,9 @@
 // ============================================================================
-// POST /api/agent/upload — Upload an image to R2
+// GET /api/tags — Tags with post counts (public)
 // ============================================================================
 
 import type { APIRoute } from "astro";
-import { handleAgentUpload } from "../../handlers/agent.js";
+import { handleListTags } from "../../handlers/public.js";
 import { agentcmsEnv } from "./_env.js";
 
-export const POST: APIRoute = ({ request }) => handleAgentUpload(request, agentcmsEnv());
+export const GET: APIRoute = ({ request }) => handleListTags(request, agentcmsEnv());

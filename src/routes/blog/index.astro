@@ -21,6 +21,9 @@ const { posts, totalPages, currentPage } = await getAgentCMSPosts({
 
 const title = config?.name || "Blog";
 const description = config?.description || "";
+
+// Purged by any publish, edit or delete through the agent API (Astro route cache).
+if (Astro.cache?.enabled) Astro.cache.set({ tags: ["agentcms:posts"] });
 ---
 
 <html lang={config?.language || "en"}>
